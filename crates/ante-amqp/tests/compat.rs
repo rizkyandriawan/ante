@@ -13,9 +13,9 @@ use ante_amqp::frame::{
 use ante_core::Ante;
 use futures_util::StreamExt;
 use lapin::options::{
-    BasicAckOptions, BasicConsumeOptions, BasicGetOptions, BasicNackOptions, BasicPublishOptions,
-    BasicQosOptions, ConfirmSelectOptions, QueueDeclareOptions, QueueDeleteOptions,
-    QueuePurgeOptions,
+    BasicAckOptions, BasicCancelOptions, BasicConsumeOptions, BasicGetOptions, BasicNackOptions,
+    BasicPublishOptions, BasicQosOptions, ConfirmSelectOptions, QueueDeclareOptions,
+    QueueDeleteOptions, QueuePurgeOptions,
 };
 use lapin::types::FieldTable;
 use lapin::{BasicProperties, Connection, ConnectionProperties};
@@ -1835,4 +1835,54 @@ async fn native_delete_releases_get_prefetch_without_an_active_consumer() {
         .expect("delivery error");
     assert_eq!(delivery.data, b"new");
     delivery.ack(BasicAckOptions::default()).await.unwrap();
+}
+
+async fn consumer_count(channel: &lapin::Channel, queue: &str) -> u32 {
+    channel
+        .queue_declare(
+            queue,
+            QueueDeclareOptions {
+                passive: true,
+                ..Default::default()
+            },
+            FieldTable::default(),
+        )
+        .await
+        .unwrap()
+        .consumer_count()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queue_declare_reports_active_consumers() {
+    let harness = Harness::start().await;
+    let connection = harness.connection().await;
+    let channel = connection.create_channel().await.unwrap();
+    declare(&channel, "counted").await;
+
+    assert_eq!(consumer_count(&channel, "counted").await, 0);
+
+    let _consumer = channel
+        .basic_consume(
+            "counted",
+            "worker",
+            BasicConsumeOptions::default(),
+            FieldTable::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        consumer_count(&channel, "counted").await,
+        1,
+        "consume-ok did not register the consumer"
+    );
+
+    channel
+        .basic_cancel("worker", BasicCancelOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        consumer_count(&channel, "counted").await,
+        0,
+        "basic.cancel left the consumer registered"
+    );
 }

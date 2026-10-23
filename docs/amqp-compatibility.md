@@ -37,6 +37,8 @@ virtual host are **ignored**. Run Ante on loopback or behind a trusted proxy.
 - The default exchange `""` routes by routing key to a queue of the same name.
   There are no bindings to configure.
 - `queue.declare` is idempotent. A non-passive declare creates the queue.
+  The declare-ok reply reports the ready message count and the number of
+  consumers bound to that queue identity.
   `passive=true` returns 404 `NOT_FOUND` if the queue does not exist.
 - `durable`, `exclusive`, and `auto-delete` bits are accepted but not enforced.
   Queue lifetime is explicit (`queue.delete`); an exclusive queue is not

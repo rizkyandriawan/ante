@@ -474,6 +474,16 @@ impl ConsumerRegistry {
             .any(|registration| registration.queue == queue && registration.queue_id == queue_id)
     }
 
+    /// Consumers currently bound to this queue identity.
+    fn count_for_queue(&self, queue: &str, queue_id: u64) -> usize {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .values()
+            .filter(|registration| registration.queue == queue && registration.queue_id == queue_id)
+            .count()
+    }
+
     fn take_by_queue(&self, queue: &str) -> Vec<Registration> {
         let mut removed = Vec::new();
         self.inner
@@ -1460,12 +1470,14 @@ async fn handle_queue_declare(shared: &Arc<Shared>, channel: u16, args: &[u8]) -
             }
             ante.declare_queue(&queue_for_call)?;
         }
-        ante.info(&queue_for_call)
+        let info = ante.info(&queue_for_call)?;
+        let queue_id = ante.queue_id(&queue_for_call)?;
+        Ok((info, queue_id))
     })
     .await;
 
-    let info = match result {
-        Ok(info) => info,
+    let (info, queue_id) = match result {
+        Ok(value) => value,
         Err(err) => {
             channel_error(
                 shared,
@@ -1481,8 +1493,13 @@ async fn handle_queue_declare(shared: &Arc<Shared>, channel: u16, args: &[u8]) -
     };
 
     if !no_wait {
+        let consumers = queue_id
+            .map(|id| shared.registry.count_for_queue(&queue, id))
+            .unwrap_or(0);
         let mut out = Encoder::new();
-        out.shortstr(&queue).u32(info.ready as u32).u32(0);
+        out.shortstr(&queue)
+            .u32(info.ready as u32)
+            .u32(consumers as u32);
         shared
             .writer
             .lock()

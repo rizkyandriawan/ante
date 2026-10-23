@@ -2,3 +2,5 @@
 /bench/target
 *.redb
 /research
+node_modules/
+packages/*/dist/

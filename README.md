@@ -186,6 +186,7 @@ crates/ante-core      storage engine, types, recovery
 crates/ante-native    RESP2-framed native protocol (server + client)
 crates/ante-amqp      AMQP 0-9-1 compatibility server
 crates/ante           daemon and CLI
+packages/ante-client  typed TypeScript client (amqplib wrapper)
 bench/                redb vs LMDB benchmark harness and results
 docs/                 protocol, delivery contract, compatibility, ADRs
 ```
@@ -194,7 +195,7 @@ Development:
 
 ```bash
 export PATH=$HOME/.cargo/bin:$PATH
-cargo test --release --workspace   # 31 tests, including stress + AMQP clients
+cargo test --release --workspace   # Rust unit + integration tests
 cargo run -p ante -- serve --db /tmp/ante.redb
 ```
 
