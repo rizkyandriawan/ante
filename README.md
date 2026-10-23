@@ -194,6 +194,7 @@ crates/ante-native    RESP2-framed native protocol (server + client)
 crates/ante-amqp      AMQP 0-9-1 compatibility server
 crates/ante           daemon and CLI
 examples/embed/       sidecar embedding examples (TypeScript, Python, Go, Java)
+sdks/python/          Python SDK (spawn + consume/publish, synchronous)
 bench/                redb vs LMDB benchmark harness and results
 docs/                 protocol, delivery contract, compatibility, ADRs
 ```

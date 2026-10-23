@@ -29,6 +29,9 @@ shows up in a profile.
 Only one process may own a given `.redb` file. Give each app instance its own
 database path, or share one daemon over the network.
 
+A fuller Python SDK with the `consume(queue, handler, prefetch=...)` shape
+lives in [`sdks/python`](../../sdks/python/README.md).
+
 ## Examples
 
 | Language | Run |

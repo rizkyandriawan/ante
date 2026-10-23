@@ -4,3 +4,6 @@
 /research
 node_modules/
 packages/*/dist/
+__pycache__/
+*.pyc
+*.egg-info/
