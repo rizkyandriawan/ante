@@ -179,6 +179,13 @@ Reading:
 - Numbers are not independent fsyncs per second: at batch 256, each commit
   covers 256 messages.
 
+## Embedding in an application
+
+Ante is a single binary. Start it with `--native 127.0.0.1:0`, read the
+printed address from stdout, and talk to it over the native protocol. Runnable
+sidecar examples live in `examples/embed/` for TypeScript, Python, Go, and
+Java; the same directory compares sidecar embedding with in-process FFI.
+
 ## Repository layout
 
 ```
@@ -186,7 +193,7 @@ crates/ante-core      storage engine, types, recovery
 crates/ante-native    RESP2-framed native protocol (server + client)
 crates/ante-amqp      AMQP 0-9-1 compatibility server
 crates/ante           daemon and CLI
-packages/ante-client  typed TypeScript client (amqplib wrapper)
+examples/embed/       sidecar embedding examples (TypeScript, Python, Go, Java)
 bench/                redb vs LMDB benchmark harness and results
 docs/                 protocol, delivery contract, compatibility, ADRs
 ```
