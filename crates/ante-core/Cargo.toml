@@ -1,0 +1,9 @@
+[package]
+name = "ante-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Durable work-queue engine for Ante"
+
+[dependencies]
+redb.workspace = true

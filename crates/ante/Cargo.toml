@@ -1,0 +1,16 @@
+[package]
+name = "ante"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Ante daemon and CLI"
+
+[[bin]]
+name = "ante"
+path = "src/main.rs"
+
+[dependencies]
+ante-core = { path = "../ante-core" }
+ante-native = { path = "../ante-native" }
+ante-amqp = { path = "../ante-amqp" }
+tokio = { workspace = true, features = ["signal"] }

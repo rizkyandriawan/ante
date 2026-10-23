@@ -1,0 +1,14 @@
+[package]
+name = "ante-amqp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "AMQP 0-9-1 compatibility adapter for Ante"
+
+[dependencies]
+ante-core = { path = "../ante-core" }
+tokio.workspace = true
+
+[dev-dependencies]
+lapin = "3"
+futures-util = "0.3"

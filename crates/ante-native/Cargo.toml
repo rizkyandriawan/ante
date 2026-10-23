@@ -1,0 +1,10 @@
+[package]
+name = "ante-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "RESP-framed native protocol for Ante"
+
+[dependencies]
+ante-core = { path = "../ante-core" }
+tokio.workspace = true

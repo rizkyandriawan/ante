@@ -1,0 +1,9 @@
+[package]
+name = "heed-bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bench-common = { path = "../common" }
+heed = { version = "=0.22.1", default-features = false }
+serde_json = "1"

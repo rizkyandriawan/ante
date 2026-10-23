@@ -1,0 +1,9 @@
+[package]
+name = "redb-bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bench-common = { path = "../common" }
+redb = "2"
+serde_json = "1"

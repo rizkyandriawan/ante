@@ -1,0 +1,21 @@
+[workspace]
+members = ["crates/ante-core", "crates/ante-native", "crates/ante-amqp", "crates/ante"]
+exclude = ["bench"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/rizkyandriawan/ante"
+
+[workspace.dependencies]
+redb = "2.6"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,7 @@
+run_id=20261023T172245Z
+cpu=13th Gen Intel(R) Core(TM) i7-13700H
+cores=20
+kernel=7.0.0-38-generic
+rustc=rustc 1.99.1 (58cf8f9c3 2026-10-13)
+topology=loopback TCP, server and client in one process
+durability=redb immediate, default cache 64 MiB
