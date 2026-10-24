@@ -30,7 +30,8 @@ Design constraints:
   does not feed work to the old subscription. Conditional deletes are atomic.
 - **Visible history.** Every take records an attempt; ack, discard, requeue,
   expiry, and recovery finish it with a timestamped outcome. Native `STATUS`
-  reads one message without scanning ready work.
+  reads one message without scanning ready work. Finished history is bounded by
+  age and row count, and unfinished attempts are never pruned.
 - **Atomic completion.** A worker can publish its result and settle its input
   in one transaction, removing the publish-then-crash duplicate window.
 - **Batching is the throughput lever.** Sequential durable commits cost
@@ -99,7 +100,7 @@ ch.basic_publish("", "jobs", body, properties=pika.BasicProperties(delivery_mode
 
 ```
 ante serve   [--db PATH] [--native ADDR] [--amqp ADDR] [--no-native] [--no-amqp]
-             [--security PATH]
+             [--security PATH] [--history-retention-ms N] [--history-max-rows N]
 ante hash-password
 ante init    [--db PATH]
 ante declare QUEUE
@@ -120,7 +121,8 @@ ante ping
 
 `--server ADDR` (or `ANTE_SERVER`) selects the native endpoint; `--db` (or
 `ANTE_DB`) selects the file used by `serve`/`init`. Default DB is
-`./ante.sqlite3`.
+`./ante.sqlite3`. Attempt history defaults to 7 days and 1,000,000 finished
+rows; pass `0` to either `serve` flag to disable that limit.
 
 Client TLS/authentication flags: `--tls-ca PATH`, `--tls-server-name NAME`,
 `--user NAME`, `--password-file PATH`; environment equivalents are

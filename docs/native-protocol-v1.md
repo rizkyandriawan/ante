@@ -184,8 +184,9 @@ attempt <n> delivery-id <n> started-at-ms <n>
 finished-at-ms <n|empty> outcome <state>
 ```
 
-History is retained after ack and after queue deletion. A message id that never
-existed, or whose history belongs to another queue, returns
+History is retained after ack and after queue deletion, subject to the engine's
+age/row-count retention policy. A message id that never existed, whose history
+was pruned, or whose history belongs to another queue returns
 `-MESSAGE_NOT_FOUND ...`.
 
 ### `LIST`

@@ -101,6 +101,11 @@ read it with the native `STATUS` command or the embedded `message_status` API.
 History is diagnostic metadata, not a delivery guarantee: the queue entries,
 not the history table, remain the source of truth for pending work.
 
+Finished history is pruned by age (default 7 days) and row count (default
+1,000,000), at open and periodically by a running listener. Unfinished attempts
+are never pruned. Once a finished message's history is pruned, `STATUS` returns
+`MESSAGE_NOT_FOUND` for it.
+
 ## Atomic completion
 
 `COMPLETE` (native) and `Delivery.complete` (embedded Python) insert a result

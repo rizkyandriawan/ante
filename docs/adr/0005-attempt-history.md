@@ -1,7 +1,7 @@
 # ADR 0005: durable delivery attempt history
 
 Date: 2026-10-24
-Status: accepted
+Status: accepted; retention added by ADR 0007
 
 ## Context
 

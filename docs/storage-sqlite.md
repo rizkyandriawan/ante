@@ -45,9 +45,13 @@ removed while ready has no new attempt; its status reports `discarded` while
 history retains the previous outcome.
 
 The table deliberately has no foreign key to entries. Acknowledging a message or
-deleting its queue therefore preserves bounded attempt history for status
-queries. History is not garbage-collected yet; retention will be added with the
-job-history API.
+deleting its queue therefore preserves attempt history for status queries.
+
+Retention defaults to **7 days** and **1,000,000 finished attempts**. The policy
+runs at open and every 60 seconds while a native or AMQP listener is running.
+Unfinished attempts are never pruned. Set `history_retention_ms=0` or
+`history_max_rows=0` to disable that limit. Each run deletes at most 10,000 rows
+so a large backlog cannot stall delivery indefinitely.
 
 ## Limits and operational notes
 

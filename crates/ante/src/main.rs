@@ -19,7 +19,7 @@ ante - durable work queue
 
 USAGE:
   ante serve [--db PATH] [--native ADDR] [--amqp ADDR] [--no-native] [--no-amqp]
-             [--security PATH]
+             [--security PATH] [--history-retention-ms N] [--history-max-rows N]
   ante hash-password
   ante init [--db PATH]
   ante declare QUEUE [--server ADDR]
@@ -260,8 +260,18 @@ async fn run(argv: Vec<String>) -> Result<(), (i32, String)> {
 
 async fn serve(flags: &HashMap<String, String>) -> Result<(), (i32, String)> {
     let db = db_path(flags);
-    let ante =
-        Arc::new(Ante::open(&db).map_err(|err| (1, format!("open {}: {err}", db.display())))?);
+    let mut options = ante_core::Options::default();
+    if let Some(value) = flag_u64(flags, "history-retention-ms")? {
+        options.history_retention_ms = value;
+    }
+    if let Some(value) = flag_u64(flags, "history-max-rows")? {
+        options.history_max_rows =
+            usize::try_from(value).map_err(|_| (2, "history-max-rows is too large".into()))?;
+    }
+    let ante = Arc::new(
+        Ante::open_with(&db, options)
+            .map_err(|err| (1, format!("open {}: {err}", db.display())))?,
+    );
     let native_addr = flags
         .get("native")
         .cloned()
