@@ -111,6 +111,14 @@ Reply: array of records. Each record is an array of seven bulk strings:
 
 An empty queue returns `*0\r\n`.
 
+### `TOUCH token [lease-ms]`
+
+Extends an in-flight delivery's lease to `now + lease-ms` (default `30000`;
+`0` also means the engine default). It does not create a new attempt or change
+history. Returns `OK`; a stale or unknown token returns `STALE_DELIVERY` or
+`UNKNOWN_DELIVERY`. This command is native/embedded only; AMQP has no portable
+lease-renewal method.
+
 ### `ACK token...` (alias `ACK_BATCH`)
 
 Acknowledges one or more deliveries in one commit and deletes the messages.

@@ -417,6 +417,32 @@ async fn dispatch(
                 Err(err) => error_value(err.code(), &err.to_string()),
             }
         }
+        Command::Touch { token, lease_ms } => {
+            let token = match DeliveryToken::parse(&token) {
+                Ok(token) => token,
+                Err(err) => return error_value(err.code(), &err.to_string()),
+            };
+            if let Err(reply) = authorize_tokens(
+                ante,
+                drain,
+                security,
+                principal,
+                std::slice::from_ref(&token),
+            )
+            .await
+            {
+                return reply;
+            }
+            let ante = ante.clone();
+            match blocking(drain, move || ante.touch(&token, lease_ms)).await {
+                Ok(outcome) => match outcome {
+                    ante_core::TouchOutcome::Extended => Value::Simple("OK".into()),
+                    ante_core::TouchOutcome::Stale => Value::Error("STALE_DELIVERY".into()),
+                    ante_core::TouchOutcome::Unknown => Value::Error("UNKNOWN_DELIVERY".into()),
+                },
+                Err(err) => error_value(err.code(), &err.to_string()),
+            }
+        }
         Command::Complete {
             token,
             queue,

@@ -34,6 +34,8 @@ Design constraints:
   age and row count, and unfinished attempts are never pruned.
 - **Atomic completion.** A worker can publish its result and settle its input
   in one transaction, removing the publish-then-crash duplicate window.
+- **Renewable leases.** Native and embedded workers can extend an in-flight
+  lease without creating a new attempt.
 - **Batching is the throughput lever.** Sequential durable commits cost
   ~160 µs each; batch publish/ack/take amortizes that to a few µs per job.
   The native protocol exposes batching; AMQP production is limited by
@@ -110,6 +112,7 @@ ante status  QUEUE MESSAGE_ID
 ante publish QUEUE [PAYLOAD] [--file PATH] [--content-type TYPE] [--message-id ID]
 ante take    QUEUE [--max N] [--lease-ms N] [--wait-ms N] [--json]
 ante ack     TOKEN...
+ante touch   TOKEN [--lease-ms N]
 ante discard TOKEN...
 ante complete TOKEN QUEUE [PAYLOAD] [--file PATH] [--content-type TYPE]
              [--message-id ID] [--discard]

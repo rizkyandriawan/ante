@@ -29,6 +29,7 @@ USAGE:
   ante publish QUEUE [PAYLOAD] [--file PATH] [--content-type TYPE] [--message-id ID]
   ante take QUEUE [--max N] [--lease-ms N] [--wait-ms N] [--json] [--server ADDR]
   ante ack TOKEN... [--server ADDR]
+  ante touch TOKEN [--lease-ms N] [--server ADDR]
   ante discard TOKEN... [--server ADDR]
   ante complete TOKEN QUEUE [PAYLOAD] [--file PATH] [--content-type TYPE]
                 [--message-id ID] [--discard] [--server ADDR]
@@ -182,6 +183,29 @@ async fn run(argv: Vec<String>) -> Result<(), (i32, String)> {
         "publish" => publish(&positional, &flags).await,
         "complete" => complete(&positional, &flags).await,
         "take" => take(&positional, &flags).await,
+        "touch" => {
+            let token = positional
+                .first()
+                .ok_or((2, "usage: ante touch TOKEN [--lease-ms N]".into()))?;
+            let lease_ms = flag_u64(&flags, "lease-ms")?.unwrap_or(0);
+            let mut client = connect(&flags).await?;
+            let value = client
+                .call(&[
+                    b"TOUCH".to_vec(),
+                    token.as_bytes().to_vec(),
+                    lease_ms.to_string().into_bytes(),
+                ])
+                .await
+                .map_err(io_err)?;
+            let mut out = std::io::stdout();
+            match value {
+                Value::Simple(text) => {
+                    let _ = writeln!(out, "{text}");
+                    Ok(())
+                }
+                other => expect_ok(other, &mut out),
+            }
+        }
         "ack" | "discard" | "requeue" => {
             if positional.is_empty() {
                 return Err((2, format!("usage: ante {command} TOKEN...")));

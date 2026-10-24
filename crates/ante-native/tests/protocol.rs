@@ -253,6 +253,31 @@ async fn discard_settles_without_acknowledging() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn touch_extends_a_live_delivery() {
+    let harness = Harness::start().await;
+    let mut client = harness.client().await;
+    client.declare("jobs").await.unwrap();
+    client.publish("jobs", b"long").await.unwrap();
+    let delivery = take_one(&mut client).await;
+
+    let touched = client
+        .call(&[
+            b"TOUCH".to_vec(),
+            delivery.token.as_bytes().to_vec(),
+            b"60000".to_vec(),
+        ])
+        .await
+        .unwrap();
+    assert_eq!(touched, Value::Simple("OK".into()));
+
+    let unknown = client
+        .call(&[b"TOUCH".to_vec(), b"999:1".to_vec()])
+        .await
+        .unwrap();
+    expect_error(&unknown, "UNKNOWN_DELIVERY");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn complete_publishes_the_result_and_acks() {
     let harness = Harness::start().await;
     let mut client = harness.client().await;

@@ -44,6 +44,10 @@ pub enum Command {
         message_id: Option<String>,
         settlement: ante_core::Settlement,
     },
+    Touch {
+        token: String,
+        lease_ms: u64,
+    },
     Requeue {
         token: String,
     },
@@ -193,6 +197,19 @@ impl Command {
                         .iter()
                         .map(|raw| text(raw, "delivery token"))
                         .collect::<Result<_, _>>()?,
+                })
+            }
+            "TOUCH" => {
+                if args.is_empty() || args.len() > 2 {
+                    return Err(fail("PROTOCOL", "TOUCH token [lease-ms]"));
+                }
+                Ok(Command::Touch {
+                    token: text(&args[0], "delivery token")?,
+                    lease_ms: args
+                        .get(1)
+                        .map(|value| parse_u64(value, "lease-ms"))
+                        .transpose()?
+                        .unwrap_or(0),
                 })
             }
             "COMPLETE" => {

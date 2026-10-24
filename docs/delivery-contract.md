@@ -87,9 +87,11 @@ after restart.
   are requeued immediately by channel cleanup instead of waiting for lease
   expiry.
 
-A lease is not a visibility timeout that can be extended. If a handler needs
-more time, it must be fast enough, use a shorter unit of work, or (in v1) ack
-and re-publish. Lease extension is a candidate for a later version.
+A lease can be extended with `TOUCH token [lease-ms]` (native) or
+`delivery.touch()` (embedded Python). Extension moves only the deadline; it does
+not add an attempt or alter history. A stale or unknown token cannot extend a
+newer delivery. AMQP has no portable extension method, so AMQP consumers should
+choose a lease that covers the handler or split the work.
 
 ## Attempt history
 
