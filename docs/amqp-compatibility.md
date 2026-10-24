@@ -77,7 +77,7 @@ a trusted TLS proxy.
   before a take, so multiple consumers on one channel cannot exceed the limit.
   `prefetch_count=0` means the server default of 32. The prefetch size field is
   ignored.
-- Deliveries use the server lease (30 s by default). An expired delivery is
+- Deliveries use the server ACK timeout lease (30 minutes by default). An expired delivery is
   returned to ready and its prefetch slot is released. A late `basic.ack` for
   that expired tag is an unknown tag and closes the channel with 406
   `PRECONDITION_FAILED`; the redelivered message is unaffected.

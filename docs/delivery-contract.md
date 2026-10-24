@@ -76,7 +76,7 @@ after restart.
 ## Leases
 
 - Default lease: 30 seconds. Native clients may override per `TAKE`
-  (`lease-ms`). AMQP clients cannot set a lease; the server default applies.
+  (`lease-ms`). AMQP clients cannot set a lease; the server ACK timeout default of 30 minutes applies.
 - The lease starts when the delivery is handed to the consumer (after the take
   commit).
 - On expiry the message returns to ready and its attempt count increments.
