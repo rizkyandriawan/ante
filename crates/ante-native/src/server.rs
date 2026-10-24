@@ -2,8 +2,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ante_core::{AckOutcome, Ante, Delivery, DeliveryToken, Error, NewMessage, RequeueOutcome};
-use tokio::io::{AsyncWriteExt, BufWriter};
-use tokio::net::{TcpListener, TcpStream};
+use ante_security::{BoxedStream, Permission, Principal, Security, TlsAcceptor};
+use tokio::io::{AsyncWriteExt, BufWriter, ReadHalf, WriteHalf};
+use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
 use crate::codec::{array, bulk, write_value, RespReader, Value};
@@ -70,6 +71,25 @@ pub async fn serve(listener: TcpListener, ante: Arc<Ante>) -> std::io::Result<()
 pub async fn serve_until(
     listener: TcpListener,
     ante: Arc<Ante>,
+    shutdown: oneshot::Receiver<()>,
+) -> std::io::Result<()> {
+    serve_loop(listener, ante, None, shutdown).await
+}
+
+/// Serve the native protocol over TLS with credentials and queue permissions.
+pub async fn serve_secure_until(
+    listener: TcpListener,
+    ante: Arc<Ante>,
+    security: Arc<Security>,
+    shutdown: oneshot::Receiver<()>,
+) -> std::io::Result<()> {
+    serve_loop(listener, ante, Some(security), shutdown).await
+}
+
+async fn serve_loop(
+    listener: TcpListener,
+    ante: Arc<Ante>,
+    security: Option<Arc<Security>>,
     mut shutdown: oneshot::Receiver<()>,
 ) -> std::io::Result<()> {
     let mut ticker = tokio::time::interval(Duration::from_secs(1));
@@ -98,11 +118,38 @@ pub async fn serve_until(
                         continue;
                     }
                 };
+                let _ = stream.set_nodelay(true);
                 let ante = ante.clone();
                 let stop = stop_rx.clone();
                 let drain = drain.clone();
+                let security = security.clone();
+                let acceptor = security
+                    .as_ref()
+                    .map(|security| TlsAcceptor::from(security.tls_config()));
                 connections.spawn(async move {
-                    if let Err(err) = handle_connection(stream, ante, drain, stop).await {
+                    let result = match acceptor {
+                        Some(acceptor) => {
+                            let stream = match tokio::time::timeout(
+                                Duration::from_secs(10),
+                                acceptor.accept(stream),
+                            )
+                            .await
+                            {
+                                Ok(Ok(stream)) => stream,
+                                Ok(Err(err)) => {
+                                    eprintln!("ante: TLS handshake failed from {peer}: {err}");
+                                    return;
+                                }
+                                Err(_) => {
+                                    eprintln!("ante: TLS handshake timed out from {peer}");
+                                    return;
+                                }
+                            };
+                            handle_connection(Box::new(stream), ante, drain, stop, security).await
+                        }
+                        None => handle_connection(Box::new(stream), ante, drain, stop, security).await,
+                    };
+                    if let Err(err) = result {
                         if err.kind() != std::io::ErrorKind::UnexpectedEof {
                             eprintln!("ante: connection {peer} closed: {err}");
                         }
@@ -137,15 +184,17 @@ pub async fn serve_until(
 }
 
 async fn handle_connection(
-    stream: TcpStream,
+    stream: BoxedStream,
     ante: Arc<Ante>,
     drain: Drain,
     mut stop: tokio::sync::watch::Receiver<bool>,
+    security: Option<Arc<Security>>,
 ) -> std::io::Result<()> {
-    stream.set_nodelay(true)?;
-    let (read_half, write_half) = stream.into_split();
+    let (read_half, write_half): (ReadHalf<BoxedStream>, WriteHalf<BoxedStream>) =
+        tokio::io::split(stream);
     let mut writer = BufWriter::with_capacity(64 * 1024, write_half);
     let mut reader = RespReader::new(read_half);
+    let mut principal: Option<Principal> = None;
 
     loop {
         let value = tokio::select! {
@@ -156,7 +205,7 @@ async fn handle_connection(
             },
         };
 
-        let command = match Command::parse(value) {
+        let mut command = match Command::parse(value) {
             Ok(command) => command,
             Err(err) => {
                 write_value(&mut writer, &error_value(err.code, &err.message)).await?;
@@ -165,8 +214,31 @@ async fn handle_connection(
             }
         };
 
+        if security.is_some()
+            && principal.is_none()
+            && !matches!(
+                command,
+                Command::Hello { .. } | Command::Auth { .. } | Command::Ping | Command::Quit
+            )
+        {
+            write_value(
+                &mut writer,
+                &error_value("AUTH_REQUIRED", "AUTH username secret is required"),
+            )
+            .await?;
+            writer.flush().await?;
+            continue;
+        }
+
         let quit = matches!(command, Command::Quit);
-        let reply = dispatch(command, &ante, &drain).await;
+        let reply = dispatch(
+            std::mem::replace(&mut command, Command::Quit),
+            &ante,
+            &drain,
+            security.as_ref(),
+            &mut principal,
+        )
+        .await;
         write_value(&mut writer, &reply).await?;
         writer.flush().await?;
         if quit {
@@ -175,12 +247,44 @@ async fn handle_connection(
     }
 }
 
-async fn dispatch(command: Command, ante: &Arc<Ante>, drain: &Drain) -> Value {
+async fn dispatch(
+    command: Command,
+    ante: &Arc<Ante>,
+    drain: &Drain,
+    security: Option<&Arc<Security>>,
+    principal: &mut Option<Principal>,
+) -> Value {
     match command {
         Command::Hello { .. } => Value::Simple(format!("ANTE {PROTOCOL_VERSION}")),
+        Command::Auth { username, secret } => {
+            let Some(security) = security else {
+                return Value::Simple("OK".into());
+            };
+            let verifier = Arc::clone(security);
+            let authenticated =
+                tokio::task::spawn_blocking(move || verifier.authenticate(&username, &secret))
+                    .await
+                    .ok()
+                    .flatten();
+            match authenticated {
+                Some(auth) => {
+                    *principal = Some(auth);
+                    Value::Simple("OK".into())
+                }
+                None => error_value("AUTHENTICATION_FAILED", "invalid credentials"),
+            }
+        }
         Command::Ping => Value::Simple("PONG".into()),
         Command::Quit => Value::Simple("OK".into()),
         Command::Declare { queue } => {
+            if !allowed(
+                security.map(Arc::as_ref),
+                principal.as_ref(),
+                Permission::Declare,
+                &queue,
+            ) {
+                return denied(Permission::Declare, &queue);
+            }
             let ante = ante.clone();
             match blocking(drain, move || ante.declare_queue(&queue)).await {
                 Ok(id) => Value::Integer(id as i64),
@@ -193,6 +297,14 @@ async fn dispatch(command: Command, ante: &Arc<Ante>, drain: &Drain) -> Value {
             content_type,
             message_id,
         } => {
+            if !allowed(
+                security.map(Arc::as_ref),
+                principal.as_ref(),
+                Permission::Publish,
+                &queue,
+            ) {
+                return denied(Permission::Publish, &queue);
+            }
             let ante = ante.clone();
             let message = NewMessage {
                 payload,
@@ -206,6 +318,14 @@ async fn dispatch(command: Command, ante: &Arc<Ante>, drain: &Drain) -> Value {
             }
         }
         Command::PublishBatch { queue, payloads } => {
+            if !allowed(
+                security.map(Arc::as_ref),
+                principal.as_ref(),
+                Permission::Publish,
+                &queue,
+            ) {
+                return denied(Permission::Publish, &queue);
+            }
             let ante = ante.clone();
             let messages: Vec<NewMessage> = payloads
                 .into_iter()
@@ -228,7 +348,17 @@ async fn dispatch(command: Command, ante: &Arc<Ante>, drain: &Drain) -> Value {
             max,
             lease_ms,
             wait_ms,
-        } => take_with_wait(ante, drain, queue, max, lease_ms, wait_ms).await,
+        } => {
+            if !allowed(
+                security.map(Arc::as_ref),
+                principal.as_ref(),
+                Permission::Consume,
+                &queue,
+            ) {
+                return denied(Permission::Consume, &queue);
+            }
+            take_with_wait(ante, drain, queue, max, lease_ms, wait_ms).await
+        }
         Command::Ack { tokens } => {
             let parsed: Result<Vec<DeliveryToken>, Error> = tokens
                 .iter()
@@ -238,6 +368,9 @@ async fn dispatch(command: Command, ante: &Arc<Ante>, drain: &Drain) -> Value {
                 Ok(parsed) => parsed,
                 Err(err) => return error_value(err.code(), &err.to_string()),
             };
+            if let Err(reply) = authorize_tokens(ante, drain, security, principal, &parsed).await {
+                return reply;
+            }
             let single = parsed.len() == 1;
             let ante = ante.clone();
             match blocking(drain, move || ante.ack_batch(&parsed)).await {
@@ -256,6 +389,17 @@ async fn dispatch(command: Command, ante: &Arc<Ante>, drain: &Drain) -> Value {
                 Ok(token) => token,
                 Err(err) => return error_value(err.code(), &err.to_string()),
             };
+            if let Err(reply) = authorize_tokens(
+                ante,
+                drain,
+                security,
+                principal,
+                std::slice::from_ref(&token),
+            )
+            .await
+            {
+                return reply;
+            }
             let ante = ante.clone();
             match blocking(drain, move || ante.requeue(&token)).await {
                 Ok(outcome) => requeue_value(outcome),
@@ -263,6 +407,14 @@ async fn dispatch(command: Command, ante: &Arc<Ante>, drain: &Drain) -> Value {
             }
         }
         Command::Info { queue } => {
+            if !allowed(
+                security.map(Arc::as_ref),
+                principal.as_ref(),
+                Permission::Inspect,
+                &queue,
+            ) {
+                return denied(Permission::Inspect, &queue);
+            }
             let ante = ante.clone();
             match blocking(drain, move || ante.info(&queue)).await {
                 Ok(info) => info_value(&info),
@@ -270,6 +422,14 @@ async fn dispatch(command: Command, ante: &Arc<Ante>, drain: &Drain) -> Value {
             }
         }
         Command::Purge { queue } => {
+            if !allowed(
+                security.map(Arc::as_ref),
+                principal.as_ref(),
+                Permission::Purge,
+                &queue,
+            ) {
+                return denied(Permission::Purge, &queue);
+            }
             let ante = ante.clone();
             match blocking(drain, move || ante.purge(&queue)).await {
                 Ok(count) => Value::Integer(count as i64),
@@ -277,6 +437,14 @@ async fn dispatch(command: Command, ante: &Arc<Ante>, drain: &Drain) -> Value {
             }
         }
         Command::DeleteQueue { queue } => {
+            if !allowed(
+                security.map(Arc::as_ref),
+                principal.as_ref(),
+                Permission::Delete,
+                &queue,
+            ) {
+                return denied(Permission::Delete, &queue);
+            }
             let ante = ante.clone();
             match blocking(drain, move || ante.delete_queue(&queue)).await {
                 Ok(count) => Value::Integer(count as i64),
@@ -289,6 +457,14 @@ async fn dispatch(command: Command, ante: &Arc<Ante>, drain: &Drain) -> Value {
                 Ok(queues) => array(
                     queues
                         .iter()
+                        .filter(|q| {
+                            allowed(
+                                security.map(Arc::as_ref),
+                                principal.as_ref(),
+                                Permission::Inspect,
+                                &q.name,
+                            )
+                        })
                         .map(|q| {
                             array(vec![
                                 bulk(q.name.clone()),
@@ -302,6 +478,61 @@ async fn dispatch(command: Command, ante: &Arc<Ante>, drain: &Drain) -> Value {
             }
         }
     }
+}
+
+fn allowed(
+    security: Option<&Security>,
+    principal: Option<&Principal>,
+    permission: Permission,
+    queue: &str,
+) -> bool {
+    match security {
+        None => true,
+        Some(security) => security.allows(principal, permission, queue),
+    }
+}
+
+fn denied(permission: Permission, queue: &str) -> Value {
+    error_value(
+        "PERMISSION_DENIED",
+        &format!("{} on queue {queue}", permission.as_str()),
+    )
+}
+
+async fn authorize_tokens(
+    ante: &Arc<Ante>,
+    drain: &Drain,
+    security: Option<&Arc<Security>>,
+    principal: &Option<Principal>,
+    tokens: &[DeliveryToken],
+) -> std::result::Result<(), Value> {
+    if security.is_none() {
+        return Ok(());
+    }
+    let ante = ante.clone();
+    let tokens = tokens.to_vec();
+    let queues = blocking(drain, move || {
+        tokens
+            .iter()
+            .map(|token| ante.queue_for_token(token))
+            .collect::<std::result::Result<Vec<_>, Error>>()
+    })
+    .await;
+    let queues = match queues {
+        Ok(queues) => queues,
+        Err(err) => return Err(error_value(err.code(), &err.to_string())),
+    };
+    for queue in queues.into_iter().flatten() {
+        if !allowed(
+            security.map(Arc::as_ref),
+            principal.as_ref(),
+            Permission::Consume,
+            &queue,
+        ) {
+            return Err(denied(Permission::Consume, &queue));
+        }
+    }
+    Ok(())
 }
 
 async fn take_with_wait(

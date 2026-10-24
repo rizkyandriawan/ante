@@ -5,7 +5,9 @@ RESP2 framing (the wire format Redis uses) because it is trivial to implement
 and inspect with `nc`, but the command set is Ante's own. **It is not a Redis
 API.**
 
-Transport: TCP, default `127.0.0.1:7300`. One request in flight per connection;
+Transport: TCP, default `127.0.0.1:7300`. With `--security` the listener uses
+TLS; clients verify the server certificate against the configured CA (no client
+certificate is required). See [security.md](security.md). One request in flight per connection;
 requests on one connection are handled in order. A `TAKE` with `wait-ms > 0`
 blocks that connection until a message arrives or the wait expires.
 
@@ -47,12 +49,23 @@ Errors have the form `-<CODE> <message>`. Codes:
 | `UNKNOWN_COMMAND` | unrecognized command name |
 | `PROTOCOL` | malformed request (Bad request format) |
 | `VERSION` | unsupported protocol version |
+| `AUTH_REQUIRED` | authenticate before using queue commands |
+| `AUTHENTICATION_FAILED` | invalid username or secret |
+| `PERMISSION_DENIED` | the user lacks that permission on the queue |
 
 `STALE_DELIVERY` and `UNKNOWN_DELIVERY` come from `ACK`/`REQUEUE` results.
 
 ## Commands
 
 Arguments are case-insensitive command names followed by positional values.
+
+### `AUTH username secret`
+
+Authenticates the connection when the server is started with `--security`.
+Reply: `+OK`. Errors: `-AUTHENTICATION_FAILED ...`, or `-AUTH_REQUIRED ...` for
+any queue command before authentication. `HELLO`, `PING`, `AUTH`, and `QUIT` are
+allowed before authentication. On a legacy server without `--security`, `AUTH`
+is a no-op `+OK`.
 
 ### `HELLO [version]`
 

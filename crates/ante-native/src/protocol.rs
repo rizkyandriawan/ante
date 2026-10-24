@@ -7,6 +7,10 @@ pub enum Command {
     Hello {
         version: u32,
     },
+    Auth {
+        username: String,
+        secret: String,
+    },
     Declare {
         queue: String,
     },
@@ -98,6 +102,13 @@ impl Command {
                     ));
                 }
                 Ok(Command::Hello { version })
+            }
+            "AUTH" => {
+                expect(args, 2, "AUTH username secret")?;
+                Ok(Command::Auth {
+                    username: text(&args[0], "username")?,
+                    secret: text(&args[1], "secret")?,
+                })
             }
             "DECLARE" => {
                 expect(args, 1, "DECLARE queue")?;

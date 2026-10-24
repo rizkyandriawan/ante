@@ -7,4 +7,11 @@ description = "RESP-framed native protocol for Ante"
 
 [dependencies]
 ante-core = { path = "../ante-core" }
+ante-security = { path = "../ante-security" }
 tokio.workspace = true
+
+[dev-dependencies]
+rcgen = "0.13"
+tempfile = "3"
+serde_json = "1"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

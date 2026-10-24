@@ -29,8 +29,13 @@ channel is opened. `frame_max` is the total frame size, including the 8-byte
 header/terminator overhead; inbound frames larger than it are rejected.
 Exceeding `channel_max` is a connection error 504 `CHANNEL_ERROR`.
 
-Authentication mechanisms offered: `PLAIN` and `AMQPLAIN`. Credentials and the
-virtual host are **ignored**. Run Ante on loopback or behind a trusted proxy.
+In the legacy (no `--security`) profile, `PLAIN` and `AMQPLAIN` are offered but
+credentials and the virtual host are ignored. In the secure profile, only
+`PLAIN` is offered; credentials are verified against Argon2id hashes, the
+virtual host must be `/`, and every operation is checked against queue-scoped
+permissions. See [security.md](security.md). Exposure without TLS requires an
+explicit decision to run the development profile; run Ante on loopback or behind
+a trusted TLS proxy.
 
 ## Semantics
 
@@ -124,7 +129,8 @@ virtual host are **ignored**. Run Ante on loopback or behind a trusted proxy.
 | Server-named queues (`queue.declare` with empty name) | Channel error 540 `NOT_IMPLEMENTED` |
 | Transactions (`tx.select`, `tx.commit`, `tx.rollback`) | Channel error 540 `NOT_IMPLEMENTED` |
 | Heartbeats | Negotiated to 0; no heartbeat frames are sent |
-| TLS, SASL beyond PLAIN/AMQPLAIN | Not implemented |
+| mTLS, SASL mechanisms beyond PLAIN in secure mode | Not implemented |
+| Named users / ACLs in legacy mode | Not implemented; use `--security` |
 | `immediate` publish flag | Ignored |
 | Priority, TTL, dead-letter, max-length arguments | Ignored |
 | `basic.return` from client to server | Not a client method; rejected |

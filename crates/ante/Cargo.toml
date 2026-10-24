@@ -13,4 +13,5 @@ path = "src/main.rs"
 ante-core = { path = "../ante-core" }
 ante-native = { path = "../ante-native" }
 ante-amqp = { path = "../ante-amqp" }
+ante-security = { path = "../ante-security" }
 tokio = { workspace = true, features = ["signal"] }

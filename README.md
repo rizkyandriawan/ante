@@ -7,7 +7,9 @@ an AMQP 0-9-1 subset, so a worker can be written in any language that already
 has an AMQP client, and a new service can use the simpler native protocol
 without a client library.
 
-Status: **v0.1, pre-1.0**. Single node, Linux-first, no auth or TLS. The file
+Status: **v0.1, pre-1.0**. Single node, Linux-first. TLS, Argon2id
+credentials, and queue-scoped permissions are available behind
+`--security`; the default profile remains loopback-only plaintext. The file
 format and protocol are expected to change before 1.0.
 
 ## Why another queue
@@ -42,7 +44,13 @@ cargo build --release
 ./target/release/ante serve --db ./ante.redb
 ```
 
-The daemon listens on:
+For TLS and credentials, see [docs/security.md](docs/security.md):
+
+```bash
+ante serve --db ./ante.redb --security ./security.json
+```
+
+The default (development) listener is loopback-only and unauthenticated. The daemon listens on:
 
 - native protocol: `127.0.0.1:7300`
 - AMQP 0-9-1: `127.0.0.1:5672`
@@ -86,6 +94,8 @@ ch.basic_publish("", "jobs", body, properties=pika.BasicProperties(delivery_mode
 
 ```
 ante serve   [--db PATH] [--native ADDR] [--amqp ADDR] [--no-native] [--no-amqp]
+             [--security PATH]
+ante hash-password
 ante init    [--db PATH]
 ante declare QUEUE
 ante list
@@ -102,6 +112,11 @@ ante ping
 `--server ADDR` (or `ANTE_SERVER`) selects the native endpoint; `--db` (or
 `ANTE_DB`) selects the file used by `serve`/`init`. Default DB is
 `./ante.redb`.
+
+Client TLS/authentication flags: `--tls-ca PATH`, `--tls-server-name NAME`,
+`--user NAME`, `--password-file PATH`; environment equivalents are
+`ANTE_USER` and `ANTE_PASSWORD`. See
+[docs/security.md](docs/security.md).
 
 `take` prints one line per delivery, tab separated:
 

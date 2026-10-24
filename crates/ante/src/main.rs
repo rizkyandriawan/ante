@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use ante_core::Ante;
 use ante_native::{NativeClient, Value};
+use ante_security::Security;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
@@ -18,6 +19,8 @@ ante - durable work queue
 
 USAGE:
   ante serve [--db PATH] [--native ADDR] [--amqp ADDR] [--no-native] [--no-amqp]
+             [--security PATH]
+  ante hash-password
   ante init [--db PATH]
   ante declare QUEUE [--server ADDR]
   ante list [--server ADDR]
@@ -30,9 +33,17 @@ USAGE:
   ante delete QUEUE [--server ADDR]
   ante ping [--server ADDR]
 
+CLIENT TLS:
+  --tls-ca PATH          trust this PEM CA and use TLS
+  --tls-server-name NAME override the certificate name (default: host)
+  --user NAME            native protocol username (or ANTE_USER)
+  --password-file PATH   read the secret from PATH (or ANTE_PASSWORD)
+
 ENVIRONMENT:
   ANTE_DB       default database path (default: ante.redb)
   ANTE_SERVER   default native server address (default: 127.0.0.1:7300)
+  ANTE_USER     native protocol username
+  ANTE_PASSWORD native protocol secret
 
 TAKE output is tab separated:
   token  message_id  content_type  correlation_id  reply_to  attempts  payload
@@ -65,6 +76,7 @@ async fn run(argv: Vec<String>) -> Result<(), (i32, String)> {
     let (positional, flags) = parse_args(rest)?;
     match command.as_str() {
         "serve" => serve(&flags).await,
+        "hash-password" => hash_password_command(),
         "init" => init(&flags),
         "declare" => {
             let queue = positional
@@ -201,6 +213,14 @@ async fn serve(flags: &HashMap<String, String>) -> Result<(), (i32, String)> {
     if !with_native && !with_amqp {
         return Err((2, "at least one listener must be enabled".into()));
     }
+    let security = match flags.get("security") {
+        Some(path) => {
+            Some(Arc::new(Security::load(path).map_err(|err| {
+                (2, format!("security config {path}: {err}"))
+            })?))
+        }
+        None => None,
+    };
 
     let mut native_task = None;
     let mut native_stop = None;
@@ -211,12 +231,20 @@ async fn serve(flags: &HashMap<String, String>) -> Result<(), (i32, String)> {
         let address = listener.local_addr().map_err(|err| (1, err.to_string()))?;
         let (tx, rx) = oneshot::channel();
         native_stop = Some(tx);
-        native_task = Some(tokio::spawn(ante_native::serve_until(
-            listener,
-            ante.clone(),
-            rx,
-        )));
-        println!("native  {address}");
+        let task = match security.clone() {
+            Some(security) => tokio::spawn(ante_native::serve_secure_until(
+                listener,
+                ante.clone(),
+                security,
+                rx,
+            )),
+            None => tokio::spawn(ante_native::serve_until(listener, ante.clone(), rx)),
+        };
+        native_task = Some(task);
+        println!(
+            "native  {address}{}",
+            if security.is_some() { " (tls)" } else { "" }
+        );
     }
 
     let mut amqp_task = None;
@@ -228,12 +256,21 @@ async fn serve(flags: &HashMap<String, String>) -> Result<(), (i32, String)> {
         let address = listener.local_addr().map_err(|err| (1, err.to_string()))?;
         let (tx, rx) = oneshot::channel();
         amqp_stop = Some(tx);
-        amqp_task = Some(tokio::spawn(ante_amqp::serve_until(
-            listener,
-            ante.clone(),
-            rx,
-        )));
-        println!("amqp    {address}");
+        let task = match security.clone() {
+            Some(security) => tokio::spawn(ante_amqp::serve_secure_until_with_options(
+                listener,
+                ante.clone(),
+                ante_amqp::ServerOptions::default(),
+                security,
+                rx,
+            )),
+            None => tokio::spawn(ante_amqp::serve_until(listener, ante.clone(), rx)),
+        };
+        amqp_task = Some(task);
+        println!(
+            "amqp    {address}{}",
+            if security.is_some() { " (tls)" } else { "" }
+        );
     }
     println!("db      {}", db.display());
 
@@ -374,9 +411,63 @@ async fn connect(flags: &HashMap<String, String>) -> Result<NativeClient, (i32, 
         .cloned()
         .or_else(|| std::env::var("ANTE_SERVER").ok())
         .unwrap_or_else(|| DEFAULT_SERVER.into());
-    NativeClient::connect(&address)
-        .await
-        .map_err(|err| (1, format!("connect {address}: {err}")))
+    let mut client = if let Some(ca) = flags.get("tls-ca") {
+        let name = flags
+            .get("tls-server-name")
+            .cloned()
+            .unwrap_or_else(|| server_host(&address));
+        NativeClient::connect_tls(&address, std::path::Path::new(ca), &name)
+            .await
+            .map_err(|err| (1, format!("connect {address} over TLS: {err}")))?
+    } else {
+        NativeClient::connect(&address)
+            .await
+            .map_err(|err| (1, format!("connect {address}: {err}")))?
+    };
+    let username = flags
+        .get("user")
+        .cloned()
+        .or_else(|| std::env::var("ANTE_USER").ok());
+    let password = match flags.get("password-file") {
+        Some(path) => Some(
+            std::fs::read_to_string(path)
+                .map_err(|err| (2, format!("read password file {path}: {err}")))?
+                .trim_end_matches(['\r', '\n'])
+                .to_string(),
+        ),
+        None => std::env::var("ANTE_PASSWORD").ok(),
+    };
+    if let Some(username) = username {
+        let password = password.ok_or((
+            2,
+            "a password is required (--password-file or ANTE_PASSWORD)".into(),
+        ))?;
+        client
+            .authenticate(&username, &password)
+            .await
+            .map_err(|err| (1, format!("authenticate as {username}: {err}")))?;
+    }
+    Ok(client)
+}
+
+fn server_host(address: &str) -> String {
+    address
+        .rsplit_once(':')
+        .map(|(host, _)| host.trim_matches(['[', ']']).to_string())
+        .unwrap_or_else(|| address.to_string())
+}
+
+fn hash_password_command() -> Result<(), (i32, String)> {
+    use std::io::Read;
+    let mut secret = String::new();
+    std::io::stdin()
+        .read_to_string(&mut secret)
+        .map_err(|err| (1, format!("read stdin: {err}")))?;
+    let secret = secret.trim_end_matches(['\r', '\n']);
+    let hash =
+        ante_security::hash_password(secret).map_err(|err| (2, format!("hash password: {err}")))?;
+    println!("{hash}");
+    Ok(())
 }
 
 fn io_err(err: std::io::Error) -> (i32, String) {

@@ -1,0 +1,21 @@
+[package]
+name = "ante-security"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "TLS, authentication, and queue permissions for Ante"
+
+[dependencies]
+argon2 = "0.5"
+rand_core = { version = "0.6", features = ["getrandom"] }
+rustls = "0.23"
+rustls-pemfile = "2"
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+tokio-rustls = "0.26"
+
+[dev-dependencies]
+rcgen = "0.13"
+serde_json = "1"
+tempfile = "3"

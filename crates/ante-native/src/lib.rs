@@ -11,7 +11,7 @@ pub mod server;
 pub use client::NativeClient;
 pub use codec::Value;
 pub use protocol::Command;
-pub use server::{serve, serve_until};
+pub use server::{serve, serve_secure_until, serve_until};
 
 /// Maximum size of a single bulk value on the wire.
 pub const MAX_BULK_BYTES: usize = 16 * 1024 * 1024;
