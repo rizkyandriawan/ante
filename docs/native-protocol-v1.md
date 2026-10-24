@@ -161,7 +161,9 @@ created-at-ms <n> updated-at-ms <n> history <records>
 ```
 
 `state` is one of `ready`, `inflight`, `acked`, `requeued`, `expired`,
-`recovered`, or `discarded`. `history` is an array of records; each record is
+`recovered`, or `discarded`. `discarded` also covers a message that was removed
+while ready (for example by queue deletion); its history still shows the last
+attempt outcome. `history` is an array of records; each record is
 a flat array of key/value pairs:
 
 ```

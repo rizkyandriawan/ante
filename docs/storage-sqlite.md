@@ -40,7 +40,9 @@ files as a set, then open the database once to let SQLite recover WAL state.
 Schema version 2 adds `created_at_ms`/`updated_at_ms` to entries and a
 `delivery_attempts` table keyed by delivery id. Each take inserts an `inflight`
 attempt; ack, requeue, lease expiry, startup recovery, and queue deletion finish
-it with `acked`, `requeued`, `expired`, `recovered`, or `discarded`.
+it with `acked`, `requeued`, `expired`, `recovered`, or `discarded`. A message
+removed while ready has no new attempt; its status reports `discarded` while
+history retains the previous outcome.
 
 The table deliberately has no foreign key to entries. Acknowledging a message or
 deleting its queue therefore preserves bounded attempt history for status
