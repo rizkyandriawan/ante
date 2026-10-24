@@ -12,7 +12,7 @@ use tokio::sync::oneshot;
 const DEFAULT_SERVER: &str = "127.0.0.1:7300";
 const DEFAULT_NATIVE: &str = "127.0.0.1:7300";
 const DEFAULT_AMQP: &str = "127.0.0.1:5672";
-const DEFAULT_DB: &str = "ante.redb";
+const DEFAULT_DB: &str = "ante.sqlite3";
 
 const USAGE: &str = "\
 ante - durable work queue
@@ -40,7 +40,7 @@ CLIENT TLS:
   --password-file PATH   read the secret from PATH (or ANTE_PASSWORD)
 
 ENVIRONMENT:
-  ANTE_DB       default database path (default: ante.redb)
+  ANTE_DB       default database path (default: ante.sqlite3)
   ANTE_SERVER   default native server address (default: 127.0.0.1:7300)
   ANTE_USER     native protocol username
   ANTE_PASSWORD native protocol secret

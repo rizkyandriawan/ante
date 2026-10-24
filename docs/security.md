@@ -7,7 +7,7 @@ authentication, and default-deny queue permissions.
 A security file configures both adapters:
 
 ```bash
-ante serve --db ./ante.redb --security ./security.json
+ante serve --db ./ante.sqlite3 --security ./security.json
 ```
 
 The file is loaded and fully validated **before** any listener binds. A
@@ -143,7 +143,7 @@ replacement for modern credentials.
 `ante-embedded` exposes the same secure listener:
 
 ```python
-ante = Ante.open("ante.redb")
+ante = Ante.open("ante.sqlite3")
 host, port = ante.serve_amqp(
     "127.0.0.1", 5671, security_path="/etc/myapp/security.json"
 )

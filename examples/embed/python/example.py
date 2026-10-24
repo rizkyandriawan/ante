@@ -71,7 +71,7 @@ def start(db):
 
 def main():
     work = tempfile.mkdtemp(prefix="ante-embed-py-")
-    child, host, port = start(os.path.join(work, "ante.redb"))
+    child, host, port = start(os.path.join(work, "ante.sqlite3"))
     sock = socket.create_connection((host, port), timeout=10)
     reader = Reader(sock)
     try:

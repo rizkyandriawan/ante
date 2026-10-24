@@ -10,7 +10,7 @@ license = "MIT"
 repository = "https://github.com/rizkyandriawan/ante"
 
 [workspace.dependencies]
-redb = "2.6"
+rusqlite = { version = "0.32", features = ["bundled"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
 serde = { version = "1", features = ["derive"] }
 

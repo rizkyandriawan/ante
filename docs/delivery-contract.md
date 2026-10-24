@@ -143,8 +143,9 @@ concurrency, not equal distribution.
 
 ## Durability details
 
-- redb is opened with immediate durability. Each publish, take, ack, requeue,
-  purge, and delete is a transaction; the reply is sent after commit returns.
+- SQLite runs in WAL mode with `synchronous=FULL`. Each publish, take, ack,
+  requeue, purge, and delete is a transaction; the reply is sent after commit
+  returns.
 - `PUBLISH_BATCH` and multi-token `ACK` are single transactions: all or
   nothing.
 - The database is a single file. Copying it while the server is running is not
@@ -152,8 +153,8 @@ concurrency, not equal distribution.
 - Crash testing used `kill -9` (30 cycles per backend) with full reference
   integrity checks: zero failures. This proves process-crash safety, not
   power-loss safety; that depends on the filesystem and device honoring flush.
-- redb's lock is exclusive. A second process cannot open the same database
-  file; the CLI is a client, not a second opener.
+- Ante takes an exclusive owner lock next to the SQLite file. A second process
+  cannot open the same database; the CLI is a client, not a second opener.
 
 ## Backpressure
 

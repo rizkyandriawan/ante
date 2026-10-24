@@ -1,7 +1,7 @@
 # ADR 0001: redb as the v1 storage backend
 
 Date: 2026-10-23
-Status: accepted
+Status: superseded by ADR 0003
 
 ## Context
 

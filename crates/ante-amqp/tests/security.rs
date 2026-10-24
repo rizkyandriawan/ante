@@ -57,7 +57,7 @@ impl Harness {
         let security_path = directory.path().join("security.json");
         fs::write(&security_path, serde_json::to_vec(&config).unwrap()).unwrap();
         let security = Arc::new(Security::load(&security_path).unwrap());
-        let ante = Arc::new(Ante::open(directory.path().join("ante.redb")).unwrap());
+        let ante = Arc::new(Ante::open(directory.path().join("ante.sqlite3")).unwrap());
         ante.declare_queue("jobs").unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();

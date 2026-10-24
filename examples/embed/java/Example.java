@@ -24,7 +24,7 @@ public final class Example {
         Path dir = Files.createTempDirectory("ante-embed-java-");
         Process process = new ProcessBuilder(
                 bin, "serve",
-                "--db", dir.resolve("ante.redb").toString(),
+                "--db", dir.resolve("ante.sqlite3").toString(),
                 "--no-amqp",
                 "--native", "127.0.0.1:0")
                 .redirectError(ProcessBuilder.Redirect.INHERIT)

@@ -129,7 +129,7 @@ async function request(socket, reader, parts) {
 }
 
 const dir = await mkdtemp(join(tmpdir(), "ante-embed-ts-"));
-const { child, socket, reader } = await start(join(dir, "ante.redb"));
+const { child, socket, reader } = await start(join(dir, "ante.sqlite3"));
 
 try {
   console.log("hello", (await request(socket, reader, ["HELLO", "1"])).toString());

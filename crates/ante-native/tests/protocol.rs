@@ -48,7 +48,7 @@ struct Harness {
 impl Harness {
     async fn start() -> Self {
         let dir = TempDir::new();
-        let ante = Arc::new(Ante::open(dir.path.join("ante.redb")).unwrap());
+        let ante = Arc::new(Ante::open(dir.path.join("ante.sqlite3")).unwrap());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap().to_string();
         let (tx, rx) = oneshot::channel();

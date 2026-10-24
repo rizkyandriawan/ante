@@ -26,7 +26,7 @@ shows up in a profile.
 5. On shutdown, send `SIGTERM`, wait up to ~6 s, then kill. Close sockets
    first if you want to interrupt a long-polling `TAKE`.
 
-Only one process may own a given `.redb` file. Give each app instance its own
+Only one process may own a given `.sqlite3` file. Give each app instance its own
 database path, or share one daemon over the network.
 
 A fuller Python SDK with the `consume(queue, handler, prefetch=...)` shape

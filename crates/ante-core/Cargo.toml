@@ -6,4 +6,5 @@ license.workspace = true
 description = "Durable work-queue engine for Ante"
 
 [dependencies]
-redb.workspace = true
+rusqlite.workspace = true
+fs2 = "0.4"

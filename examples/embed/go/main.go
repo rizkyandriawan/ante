@@ -125,7 +125,7 @@ func main() {
 	check(err)
 	defer os.RemoveAll(dir)
 
-	cmd, address, err := start(*bin, dir+"/ante.redb")
+	cmd, address, err := start(*bin, dir+"/ante.sqlite3")
 	check(err)
 	defer func() {
 		_ = cmd.Process.Signal(syscall.SIGTERM)

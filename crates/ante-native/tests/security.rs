@@ -56,7 +56,7 @@ async fn tls_native_auth_and_queue_permissions() {
     let directory = tempfile::tempdir().unwrap();
     let security = server(directory.path());
     let ca = directory.path().join("server-cert.pem");
-    let db = directory.path().join("ante.redb");
+    let db = directory.path().join("ante.sqlite3");
     let ante = Arc::new(Ante::open(&db).unwrap());
     ante.declare_queue("jobs").unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -157,7 +157,7 @@ async fn untrusted_ca_is_rejected() {
     let (_stop, shutdown) = oneshot::channel();
     let server = tokio::spawn(ante_native::serve_secure_until(
         listener,
-        Arc::new(Ante::open(directory.path().join("ante.redb")).unwrap()),
+        Arc::new(Ante::open(directory.path().join("ante.sqlite3")).unwrap()),
         security,
         shutdown,
     ));

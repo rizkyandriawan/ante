@@ -32,8 +32,8 @@ Design constraints:
   ~160 µs each; batch publish/ack/take amortizes that to a few µs per job.
   The native protocol exposes batching; AMQP production is limited by
   one-commit-per-publish (see Benchmarks).
-- **Bounded memory.** Storage is redb with a fixed 64 MiB cache; a large
-  backlog does not inflate RSS.
+- **Bounded memory.** Storage is SQLite in WAL mode with a bounded cache; a
+  large backlog does not inflate RSS without limit.
 - **Small compatibility surface.** The AMQP endpoint implements what a worker
   client needs, and rejects what it does not.
 
@@ -41,13 +41,13 @@ Design constraints:
 
 ```bash
 cargo build --release
-./target/release/ante serve --db ./ante.redb
+./target/release/ante serve --db ./ante.sqlite3
 ```
 
 For TLS and credentials, see [docs/security.md](docs/security.md):
 
 ```bash
-ante serve --db ./ante.redb --security ./security.json
+ante serve --db ./ante.sqlite3 --security ./security.json
 ```
 
 The default (development) listener is loopback-only and unauthenticated. The daemon listens on:
@@ -111,7 +111,7 @@ ante ping
 
 `--server ADDR` (or `ANTE_SERVER`) selects the native endpoint; `--db` (or
 `ANTE_DB`) selects the file used by `serve`/`init`. Default DB is
-`./ante.redb`.
+`./ante.sqlite3`.
 
 Client TLS/authentication flags: `--tls-ca PATH`, `--tls-server-name NAME`,
 `--user NAME`, `--password-file PATH`; environment equivalents are
@@ -141,7 +141,8 @@ delivery; `--lease-ms` overrides the 30 s default lease.
 - Ordering is FIFO by publish sequence within a queue. Requeued messages go to
   the back of the ready set.
 
-See `docs/delivery-contract.md` for the full contract and failure table.
+See `docs/delivery-contract.md` for the full contract and failure table, and
+`docs/storage-sqlite.md` for SQLite runtime and backup notes.
 
 ## Limits
 
@@ -159,9 +160,10 @@ See `docs/delivery-contract.md` for the full contract and failure table.
 Measured on a 13th Gen i7-13700H, 15.7 GiB RAM, ext4/NVMe, Rust release build.
 Full method, tables, and raw data: `bench/RESULTS.md` and `bench/results/`.
 
-Two layers are measured separately. The storage prototype (`bench/redb-bench`)
-isolates redb; the end-to-end harness (`bench/e2e.sh`) runs the real
-`ante-core` engine and the native/AMQP servers over loopback TCP.
+The storage benchmark below predates the SQLite cutover and is retained as
+historical evidence for the redb-vs-LMDB decision. The end-to-end harness
+(`bench/e2e.sh`) runs the real `ante-core` engine and the native/AMQP servers
+over loopback TCP; rerun it before quoting storage performance.
 
 Real endpoints, 3 reps, median, one queue, durable commits, bounded backlog
 (server and client in one process; not a network or TLS test):
@@ -210,7 +212,7 @@ crates/ante-amqp      AMQP 0-9-1 compatibility server
 crates/ante           daemon and CLI
 examples/embed/       sidecar embedding examples (TypeScript, Python, Go, Java)
 sdks/python/          Python SDK (spawn + consume/publish, synchronous)
-bench/                redb vs LMDB benchmark harness and results
+bench/                historical storage benchmark harness and results
 docs/                 protocol, delivery contract, compatibility, ADRs
 ```
 
@@ -219,7 +221,7 @@ Development:
 ```bash
 export PATH=$HOME/.cargo/bin:$PATH
 cargo test --release --workspace   # Rust unit + integration tests
-cargo run -p ante -- serve --db /tmp/ante.redb
+cargo run -p ante -- serve --db /tmp/ante.sqlite3
 ```
 
 The suite includes multi-worker stress (8 workers, no duplicate delivery, no
@@ -231,7 +233,7 @@ tests driven by `lapin`, and the delivery-contract cases in `ante-core`.
 - Clustering, replication, or HA.
 - Named exchanges, topics, or routing beyond the AMQP default exchange.
 - Transactions, scheduling/delay queues, priorities, or dead-letter exchanges.
-- Authentication, TLS, or multi-tenant isolation.
+- Multi-tenant isolation or mTLS.
 - Exactly-once delivery.
 
 ## License
