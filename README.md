@@ -103,9 +103,11 @@ ante init    [--db PATH]
 ante declare QUEUE
 ante list
 ante info    QUEUE
+ante status  QUEUE MESSAGE_ID
 ante publish QUEUE [PAYLOAD] [--file PATH] [--content-type TYPE] [--message-id ID]
 ante take    QUEUE [--max N] [--lease-ms N] [--wait-ms N] [--json]
 ante ack     TOKEN...
+ante discard TOKEN...
 ante requeue TOKEN...
 ante purge   QUEUE
 ante delete  QUEUE

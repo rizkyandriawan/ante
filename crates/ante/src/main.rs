@@ -25,9 +25,11 @@ USAGE:
   ante declare QUEUE [--server ADDR]
   ante list [--server ADDR]
   ante info QUEUE [--server ADDR]
+  ante status QUEUE MESSAGE_ID [--server ADDR]
   ante publish QUEUE [PAYLOAD] [--file PATH] [--content-type TYPE] [--message-id ID]
   ante take QUEUE [--max N] [--lease-ms N] [--wait-ms N] [--json] [--server ADDR]
   ante ack TOKEN... [--server ADDR]
+  ante discard TOKEN... [--server ADDR]
   ante requeue TOKEN... [--server ADDR]
   ante purge QUEUE [--server ADDR]
   ante delete QUEUE [--server ADDR]
@@ -123,9 +125,61 @@ async fn run(argv: Vec<String>) -> Result<(), (i32, String)> {
             }
             Ok(())
         }
+        "status" => {
+            if positional.len() != 2 {
+                return Err((2, "usage: ante status QUEUE MESSAGE_ID".into()));
+            }
+            let message_id: u64 = positional[1]
+                .parse()
+                .map_err(|_| (2, "MESSAGE_ID must be an unsigned integer".into()))?;
+            let mut client = connect(&flags).await?;
+            let value = client
+                .call(&[
+                    b"STATUS".to_vec(),
+                    positional[0].as_bytes().to_vec(),
+                    message_id.to_string().into_bytes(),
+                ])
+                .await
+                .map_err(io_err)?;
+            let fields = expect_array(value)?;
+            let mut out = std::io::stdout();
+            let mut iter = fields.chunks(2);
+            if let Some(first) = iter.next() {
+                let queue = bulk_text(first.get(1));
+                let mut rest = Vec::new();
+                let mut history = Vec::new();
+                for pair in iter {
+                    let key = bulk_text(pair.first());
+                    let value = pair.get(1).cloned().unwrap_or(Value::Bulk(Vec::new()));
+                    if key == "history" {
+                        if let Value::Array(attempts) = value {
+                            history = attempts;
+                        }
+                    } else {
+                        rest.push(format!("{key}={}", bulk_text(pair.get(1))));
+                    }
+                }
+                let _ = writeln!(out, "{queue}\t{}", rest.join("\t"));
+                for attempt in history {
+                    let Value::Array(pairs) = attempt else {
+                        continue;
+                    };
+                    let mut values = Vec::new();
+                    for pair in pairs.chunks(2) {
+                        values.push(format!(
+                            "{}={}",
+                            bulk_text(pair.first()),
+                            bulk_text(pair.get(1))
+                        ));
+                    }
+                    let _ = writeln!(out, "  {}", values.join("\t"));
+                }
+            }
+            Ok(())
+        }
         "publish" => publish(&positional, &flags).await,
         "take" => take(&positional, &flags).await,
-        "ack" | "requeue" => {
+        "ack" | "discard" | "requeue" => {
             if positional.is_empty() {
                 return Err((2, format!("usage: ante {command} TOKEN...")));
             }
@@ -142,7 +196,12 @@ async fn run(argv: Vec<String>) -> Result<(), (i32, String)> {
                     failed |= !report_outcome(token, value, &mut out);
                 }
             } else {
-                let mut call_args = vec![b"ACK".to_vec()];
+                let method = if command == "discard" {
+                    b"DISCARD".to_vec()
+                } else {
+                    b"ACK".to_vec()
+                };
+                let mut call_args = vec![method];
                 call_args.extend(positional.iter().map(|token| token.as_bytes().to_vec()));
                 let value = client.call(&call_args).await.map_err(io_err)?;
                 match value {
