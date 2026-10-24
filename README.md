@@ -28,6 +28,9 @@ Design constraints:
   handlers must be idempotent.
 - **Queue identity.** Deleting a queue ends its consumers; recreating the name
   does not feed work to the old subscription. Conditional deletes are atomic.
+- **Visible history.** Every take records an attempt; ack, discard, requeue,
+  expiry, and recovery finish it with a timestamped outcome. Native `STATUS`
+  reads one message without scanning ready work.
 - **Batching is the throughput lever.** Sequential durable commits cost
   ~160 µs each; batch publish/ack/take amortizes that to a few µs per job.
   The native protocol exposes batching; AMQP production is limited by

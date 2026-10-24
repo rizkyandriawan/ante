@@ -91,6 +91,16 @@ A lease is not a visibility timeout that can be extended. If a handler needs
 more time, it must be fast enough, use a shorter unit of work, or (in v1) ack
 and re-publish. Lease extension is a candidate for a later version.
 
+## Attempt history
+
+The engine records one attempt row per successful take: attempt number,
+delivery id, start time, finish time, and final outcome. The final outcome is
+`acked`, `requeued`, `expired`, `recovered` after a process restart, or
+`discarded` when it is explicitly dropped or its queue is deleted. History survives ack and queue deletion;
+read it with the native `STATUS` command or the embedded `message_status` API.
+History is diagnostic metadata, not a delivery guarantee: the queue entries,
+not the history table, remain the source of truth for pending work.
+
 ## Tokens and staleness
 
 Every delivery gets a token (`<message-id>:<delivery-id>` natively; the

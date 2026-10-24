@@ -38,6 +38,7 @@ Errors have the form `-<CODE> <message>`. Codes:
 | Code | Meaning |
 |---|---|
 | `QUEUE_NOT_FOUND` | queue does not exist (or was deleted) |
+| `MESSAGE_NOT_FOUND` | message id is unknown for that queue |
 | `QUEUE_EXISTS` | queue exists where the operation requires absence |
 | `PAYLOAD_TOO_LARGE` | payload exceeds 8 MiB |
 | `BATCH_TOO_LARGE` | too many messages (>256) or bytes (>1 MiB) in a batch |
@@ -132,6 +133,13 @@ count. Same stale/unknown rules as `ACK`.
 Native `REQUEUE` exists because at-least-once workers need an explicit retry.
 The AMQP endpoint maps `basic.reject`/`basic.nack` with `requeue=true` to it.
 
+### `DISCARD token...`
+
+Permanently removes one or more deliveries without recording them as
+successful. Same token, batching, and stale/unknown rules as `ACK`; the attempt
+history records `discarded` instead of `acked`. The AMQP endpoint maps
+`basic.reject`/`basic.nack` with `requeue=false` to it.
+
 ### `INFO queue`
 
 Reply: a flat array of key/value bulk strings:
@@ -141,6 +149,29 @@ name <name> id <n> ready <n> inflight <n> total <n>
 ```
 
 `total` is `ready + inflight`. `id` is the internal queue id.
+
+### `STATUS queue message-id`
+
+Returns the current state and retained attempt history for one message.
+Requires `INSPECT` permission. Reply: a flat array of key/value pairs:
+
+```
+queue <name> message-id <n> state <state> attempts <n>
+created-at-ms <n> updated-at-ms <n> history <records>
+```
+
+`state` is one of `ready`, `inflight`, `acked`, `requeued`, `expired`,
+`recovered`, or `discarded`. `history` is an array of records; each record is
+a flat array of key/value pairs:
+
+```
+attempt <n> delivery-id <n> started-at-ms <n>
+finished-at-ms <n|empty> outcome <state>
+```
+
+History is retained after ack and after queue deletion. A message id that never
+existed, or whose history belongs to another queue, returns
+`-MESSAGE_NOT_FOUND ...`.
 
 ### `LIST`
 

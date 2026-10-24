@@ -97,9 +97,22 @@ async fn tls_native_auth_and_queue_permissions() {
         .call(&[b"PUBLISH".to_vec(), b"jobs".to_vec(), b"payload".to_vec()])
         .await
         .unwrap();
-    assert!(matches!(published, ante_native::Value::Integer(_)));
+    let ante_native::Value::Integer(message_id) = published else {
+        panic!("expected a message id");
+    };
     assert!(matches!(
         producer.call(&[b"TAKE".to_vec(), b"jobs".to_vec(), b"1".to_vec()]).await.unwrap(),
+        ante_native::Value::Error(message) if message.starts_with("PERMISSION_DENIED")
+    ));
+    assert!(matches!(
+        producer
+            .call(&[
+                b"STATUS".to_vec(),
+                b"jobs".to_vec(),
+                message_id.to_string().into_bytes(),
+            ])
+            .await
+            .unwrap(),
         ante_native::Value::Error(message) if message.starts_with("PERMISSION_DENIED")
     ));
     assert!(matches!(

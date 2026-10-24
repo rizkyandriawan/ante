@@ -129,6 +129,129 @@ async fn publish_take_ack_over_the_wire() {
     assert_eq!(pairs[9].as_str().unwrap(), "0");
 }
 
+fn field<'a>(pairs: &'a [Value], name: &str) -> &'a Value {
+    pairs
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .find(|pair| pair[0].as_str() == Some(name))
+        .map(|pair| &pair[1])
+        .unwrap_or_else(|| panic!("missing field {name}"))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_reports_attempt_history_over_the_wire() {
+    let harness = Harness::start().await;
+    let mut client = harness.client().await;
+    client.declare("jobs").await.unwrap();
+    let published = client.publish("jobs", b"tracked").await.unwrap();
+    let Value::Integer(message_id) = published else {
+        panic!("expected message id");
+    };
+
+    let status = client
+        .call(&[
+            b"STATUS".to_vec(),
+            b"jobs".to_vec(),
+            message_id.to_string().into_bytes(),
+        ])
+        .await
+        .unwrap();
+    let Value::Array(pairs) = status else {
+        panic!("expected status pairs");
+    };
+    assert_eq!(field(&pairs, "state").as_str(), Some("ready"));
+    assert_eq!(field(&pairs, "attempts").as_str(), Some("0"));
+    let Value::Array(history) = field(&pairs, "history") else {
+        panic!("expected history array");
+    };
+    assert!(history.is_empty());
+
+    let delivery = take_one(&mut client).await;
+    let status = client
+        .call(&[
+            b"STATUS".to_vec(),
+            b"jobs".to_vec(),
+            message_id.to_string().into_bytes(),
+        ])
+        .await
+        .unwrap();
+    let Value::Array(pairs) = status else {
+        panic!("expected status pairs");
+    };
+    assert_eq!(field(&pairs, "state").as_str(), Some("inflight"));
+    assert_eq!(field(&pairs, "attempts").as_str(), Some("1"));
+    let Value::Array(history) = field(&pairs, "history") else {
+        panic!("expected history array");
+    };
+    assert_eq!(history.len(), 1);
+    let Value::Array(attempt) = &history[0] else {
+        panic!("expected attempt pairs");
+    };
+    assert_eq!(field(attempt, "outcome").as_str(), Some("inflight"));
+    assert_eq!(field(attempt, "finished-at-ms").as_str(), Some(""));
+
+    client.ack(&delivery.token).await.unwrap();
+    let status = client
+        .call(&[
+            b"STATUS".to_vec(),
+            b"jobs".to_vec(),
+            message_id.to_string().into_bytes(),
+        ])
+        .await
+        .unwrap();
+    let Value::Array(pairs) = status else {
+        panic!("expected status pairs");
+    };
+    assert_eq!(field(&pairs, "state").as_str(), Some("acked"));
+    let Value::Array(history) = field(&pairs, "history") else {
+        panic!("expected history array");
+    };
+    assert_eq!(history.len(), 1);
+    let Value::Array(attempt) = &history[0] else {
+        panic!("expected attempt pairs");
+    };
+    assert_eq!(field(attempt, "outcome").as_str(), Some("acked"));
+    assert_ne!(field(attempt, "finished-at-ms").as_str(), Some(""));
+
+    let missing = client
+        .call(&[b"STATUS".to_vec(), b"jobs".to_vec(), b"999".to_vec()])
+        .await
+        .unwrap();
+    expect_error(&missing, "MESSAGE_NOT_FOUND");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn discard_settles_without_acknowledging() {
+    let harness = Harness::start().await;
+    let mut client = harness.client().await;
+    client.declare("jobs").await.unwrap();
+    let published = client.publish("jobs", b"poison").await.unwrap();
+    let Value::Integer(message_id) = published else {
+        panic!("expected message id");
+    };
+    let delivery = take_one(&mut client).await;
+
+    let discarded = client
+        .call(&[b"DISCARD".to_vec(), delivery.token.as_bytes().to_vec()])
+        .await
+        .unwrap();
+    assert_eq!(discarded, Value::Simple("OK".into()));
+
+    let status = client
+        .call(&[
+            b"STATUS".to_vec(),
+            b"jobs".to_vec(),
+            message_id.to_string().into_bytes(),
+        ])
+        .await
+        .unwrap();
+    let Value::Array(pairs) = status else {
+        panic!("expected status pairs");
+    };
+    assert_eq!(field(&pairs, "state").as_str(), Some("discarded"));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn requeue_and_stale_delivery_detection() {
     let harness = Harness::start().await;

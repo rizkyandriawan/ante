@@ -33,11 +33,18 @@ pub enum Command {
     Ack {
         tokens: Vec<String>,
     },
+    Discard {
+        tokens: Vec<String>,
+    },
     Requeue {
         token: String,
     },
     Info {
         queue: String,
+    },
+    Status {
+        queue: String,
+        message_id: u64,
     },
     Purge {
         queue: String,
@@ -169,6 +176,17 @@ impl Command {
                         .collect::<Result<_, _>>()?,
                 })
             }
+            "DISCARD" => {
+                if args.is_empty() {
+                    return Err(fail("PROTOCOL", "DISCARD token..."));
+                }
+                Ok(Command::Discard {
+                    tokens: args
+                        .iter()
+                        .map(|raw| text(raw, "delivery token"))
+                        .collect::<Result<_, _>>()?,
+                })
+            }
             "REQUEUE" => {
                 expect(args, 1, "REQUEUE token")?;
                 Ok(Command::Requeue {
@@ -179,6 +197,13 @@ impl Command {
                 expect(args, 1, "INFO queue")?;
                 Ok(Command::Info {
                     queue: text(&args[0], "queue")?,
+                })
+            }
+            "STATUS" => {
+                expect(args, 2, "STATUS queue message-id")?;
+                Ok(Command::Status {
+                    queue: text(&args[0], "queue")?,
+                    message_id: parse_u64(&args[1], "message-id")?,
                 })
             }
             "PURGE" => {

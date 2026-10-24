@@ -384,6 +384,31 @@ async fn dispatch(
                 Err(err) => error_value(err.code(), &err.to_string()),
             }
         }
+        Command::Discard { tokens } => {
+            let parsed: Result<Vec<DeliveryToken>, Error> = tokens
+                .iter()
+                .map(|token| DeliveryToken::parse(token))
+                .collect();
+            let parsed = match parsed {
+                Ok(parsed) => parsed,
+                Err(err) => return error_value(err.code(), &err.to_string()),
+            };
+            if let Err(reply) = authorize_tokens(ante, drain, security, principal, &parsed).await {
+                return reply;
+            }
+            let single = parsed.len() == 1;
+            let ante = ante.clone();
+            match blocking(drain, move || ante.discard_batch(&parsed)).await {
+                Ok(outcomes) => {
+                    if single {
+                        ack_value(outcomes[0])
+                    } else {
+                        array(outcomes.into_iter().map(ack_value).collect())
+                    }
+                }
+                Err(err) => error_value(err.code(), &err.to_string()),
+            }
+        }
         Command::Requeue { token } => {
             let token = match DeliveryToken::parse(&token) {
                 Ok(token) => token,
@@ -418,6 +443,22 @@ async fn dispatch(
             let ante = ante.clone();
             match blocking(drain, move || ante.info(&queue)).await {
                 Ok(info) => info_value(&info),
+                Err(err) => error_value(err.code(), &err.to_string()),
+            }
+        }
+        Command::Status { queue, message_id } => {
+            if !allowed(
+                security.map(Arc::as_ref),
+                principal.as_ref(),
+                Permission::Inspect,
+                &queue,
+            ) {
+                return denied(Permission::Inspect, &queue);
+            }
+            let ante = ante.clone();
+            match blocking(drain, move || ante.message_status(&queue, message_id)).await {
+                Ok(Some(status)) => status_value(&status),
+                Ok(None) => error_value("MESSAGE_NOT_FOUND", "message not found"),
                 Err(err) => error_value(err.code(), &err.to_string()),
             }
         }
@@ -576,6 +617,46 @@ fn delivery_value(delivery: &Delivery) -> Value {
         bulk(delivery.reply_to.clone().unwrap_or_default()),
         bulk(delivery.attempts.to_string()),
         Value::Bulk(delivery.payload.clone()),
+    ])
+}
+
+fn status_value(status: &ante_core::MessageStatus) -> Value {
+    let history = status
+        .history
+        .iter()
+        .map(|attempt| {
+            array(vec![
+                bulk("attempt"),
+                bulk(attempt.attempt.to_string()),
+                bulk("delivery-id"),
+                bulk(attempt.delivery_id.to_string()),
+                bulk("started-at-ms"),
+                bulk(attempt.started_at_ms.to_string()),
+                bulk("finished-at-ms"),
+                match attempt.finished_at_ms {
+                    Some(value) => bulk(value.to_string()),
+                    None => bulk(""),
+                },
+                bulk("outcome"),
+                bulk(attempt.outcome.as_str()),
+            ])
+        })
+        .collect();
+    array(vec![
+        bulk("queue"),
+        bulk(status.queue.clone()),
+        bulk("message-id"),
+        bulk(status.message_id.to_string()),
+        bulk("state"),
+        bulk(status.state.as_str()),
+        bulk("attempts"),
+        bulk(status.attempts.to_string()),
+        bulk("created-at-ms"),
+        bulk(status.created_at_ms.to_string()),
+        bulk("updated-at-ms"),
+        bulk(status.updated_at_ms.to_string()),
+        bulk("history"),
+        Value::Array(history),
     ])
 }
 
