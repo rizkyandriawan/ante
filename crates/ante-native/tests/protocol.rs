@@ -253,6 +253,44 @@ async fn discard_settles_without_acknowledging() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn complete_publishes_the_result_and_acks() {
+    let harness = Harness::start().await;
+    let mut client = harness.client().await;
+    client.declare("jobs").await.unwrap();
+    client.declare("results").await.unwrap();
+    client.publish("jobs", b"input").await.unwrap();
+    let delivery = take_one(&mut client).await;
+
+    let completed = client
+        .call(&[
+            b"COMPLETE".to_vec(),
+            delivery.token.into_bytes(),
+            b"results".to_vec(),
+            b"output".to_vec(),
+            b"text/plain".to_vec(),
+            b"result-1".to_vec(),
+            b"ACK".to_vec(),
+        ])
+        .await
+        .unwrap();
+    assert!(matches!(completed, Value::Integer(_)));
+    assert_eq!(
+        client.info("jobs").await.unwrap(),
+        client.info("jobs").await.unwrap()
+    );
+
+    let taken = client.take("results", 1).await.unwrap();
+    let Value::Array(deliveries) = taken else {
+        panic!("expected delivery array");
+    };
+    let Value::Array(fields) = &deliveries[0] else {
+        panic!("expected delivery record");
+    };
+    assert_eq!(fields[6], Value::Bulk(b"output".to_vec()));
+    client.ack(fields[0].as_str().unwrap()).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn requeue_and_stale_delivery_detection() {
     let harness = Harness::start().await;
     let mut client = harness.client().await;

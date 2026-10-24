@@ -30,6 +30,8 @@ USAGE:
   ante take QUEUE [--max N] [--lease-ms N] [--wait-ms N] [--json] [--server ADDR]
   ante ack TOKEN... [--server ADDR]
   ante discard TOKEN... [--server ADDR]
+  ante complete TOKEN QUEUE [PAYLOAD] [--file PATH] [--content-type TYPE]
+                [--message-id ID] [--discard] [--server ADDR]
   ante requeue TOKEN... [--server ADDR]
   ante purge QUEUE [--server ADDR]
   ante delete QUEUE [--server ADDR]
@@ -178,6 +180,7 @@ async fn run(argv: Vec<String>) -> Result<(), (i32, String)> {
             Ok(())
         }
         "publish" => publish(&positional, &flags).await,
+        "complete" => complete(&positional, &flags).await,
         "take" => take(&positional, &flags).await,
         "ack" | "discard" | "requeue" => {
             if positional.is_empty() {
@@ -398,6 +401,55 @@ async fn publish(
     if let Some(message_id) = message_id {
         call_args.push(message_id.into_bytes());
     }
+    let value = client.call(&call_args).await.map_err(io_err)?;
+    let mut out = std::io::stdout();
+    match value {
+        Value::Integer(id) => {
+            let _ = writeln!(out, "OK\t{id}");
+            Ok(())
+        }
+        other => expect_ok(other, &mut out),
+    }
+}
+
+async fn complete(
+    positional: &[String],
+    flags: &HashMap<String, String>,
+) -> Result<(), (i32, String)> {
+    let token = positional.first().ok_or((
+        2,
+        "usage: ante complete TOKEN QUEUE [PAYLOAD] [--file PATH]".into(),
+    ))?;
+    let queue = positional.get(1).ok_or((
+        2,
+        "usage: ante complete TOKEN QUEUE [PAYLOAD] [--file PATH]".into(),
+    ))?;
+    let payload = match flags.get("file") {
+        Some(path) => std::fs::read(path).map_err(|err| (1, format!("read {path}: {err}")))?,
+        None => positional
+            .get(2)
+            .map(|value| value.as_bytes().to_vec())
+            .unwrap_or_default(),
+    };
+    let content_type = flags.get("content-type").cloned();
+    let message_id = flags.get("message-id").cloned();
+    let settlement = flags.contains_key("discard").then_some("DISCARD");
+    let mut call_args = vec![
+        b"COMPLETE".to_vec(),
+        token.as_bytes().to_vec(),
+        queue.as_bytes().to_vec(),
+        payload,
+    ];
+    if content_type.is_some() || message_id.is_some() || settlement.is_some() {
+        call_args.push(content_type.unwrap_or_default().into_bytes());
+    }
+    if message_id.is_some() || settlement.is_some() {
+        call_args.push(message_id.unwrap_or_default().into_bytes());
+    }
+    if let Some(settlement) = settlement {
+        call_args.push(settlement.as_bytes().to_vec());
+    }
+    let mut client = connect(flags).await?;
     let value = client.call(&call_args).await.map_err(io_err)?;
     let mut out = std::io::stdout();
     match value {

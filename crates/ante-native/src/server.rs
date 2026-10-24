@@ -409,6 +409,60 @@ async fn dispatch(
                 Err(err) => error_value(err.code(), &err.to_string()),
             }
         }
+        Command::Complete {
+            token,
+            queue,
+            payload,
+            content_type,
+            message_id,
+            settlement,
+        } => {
+            let token = match DeliveryToken::parse(&token) {
+                Ok(token) => token,
+                Err(err) => return error_value(err.code(), &err.to_string()),
+            };
+            if let Err(reply) = authorize_tokens(
+                ante,
+                drain,
+                security,
+                principal,
+                std::slice::from_ref(&token),
+            )
+            .await
+            {
+                return reply;
+            }
+            if !allowed(
+                security.map(Arc::as_ref),
+                principal.as_ref(),
+                Permission::Publish,
+                &queue,
+            ) {
+                return denied(Permission::Publish, &queue);
+            }
+            let ante = ante.clone();
+            let message = NewMessage {
+                payload,
+                content_type,
+                message_id,
+                ..Default::default()
+            };
+            match blocking(drain, move || {
+                ante.complete(&token, &queue, message, settlement)
+            })
+            .await
+            {
+                Ok(completion) => match (completion.outcome, completion.message_id) {
+                    (AckOutcome::Acked, Some(id)) => Value::Integer(id as i64),
+                    (AckOutcome::Acked, None) => {
+                        error_value("INTERNAL", "completion returned no message id")
+                    }
+                    (AckOutcome::Stale, _) => error_value("STALE_DELIVERY", "stale delivery"),
+                    (AckOutcome::Unknown, _) => error_value("UNKNOWN_DELIVERY", "unknown delivery"),
+                },
+                Err(err) => error_value(err.code(), &err.to_string()),
+            }
+        }
         Command::Requeue { token } => {
             let token = match DeliveryToken::parse(&token) {
                 Ok(token) => token,

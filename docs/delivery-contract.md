@@ -101,6 +101,19 @@ read it with the native `STATUS` command or the embedded `message_status` API.
 History is diagnostic metadata, not a delivery guarantee: the queue entries,
 not the history table, remain the source of truth for pending work.
 
+## Atomic completion
+
+`COMPLETE` (native) and `Delivery.complete` (embedded Python) insert a result
+message and settle the input delivery in one SQLite transaction. Either both
+the result exists and the input is settled, or neither changed. A stale token
+publishes nothing. A missing destination queue or storage error leaves the
+input in flight, so retry remains possible.
+
+This is the preferred way to emit a job result. Publishing first and acking
+later leaves a window where a crash duplicates the result; completing first
+removes that window inside the queue database. It cannot make writes to
+external systems atomic.
+
 ## Tokens and staleness
 
 Every delivery gets a token (`<message-id>:<delivery-id>` natively; the

@@ -59,6 +59,7 @@ async fn tls_native_auth_and_queue_permissions() {
     let db = directory.path().join("ante.sqlite3");
     let ante = Arc::new(Ante::open(&db).unwrap());
     ante.declare_queue("jobs").unwrap();
+    ante.declare_queue("results").unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let (stop, shutdown) = oneshot::channel();
@@ -140,6 +141,21 @@ async fn tls_native_auth_and_queue_permissions() {
     };
     let token = String::from_utf8(token.clone()).unwrap();
 
+    assert!(matches!(
+        worker
+            .call(&[
+                b"COMPLETE".to_vec(),
+                token.as_bytes().to_vec(),
+                b"results".to_vec(),
+                b"result".to_vec(),
+                b"".to_vec(),
+                b"".to_vec(),
+                b"ACK".to_vec(),
+            ])
+            .await
+            .unwrap(),
+        ante_native::Value::Error(message) if message.starts_with("PERMISSION_DENIED")
+    ));
     assert!(matches!(
         producer.call(&[b"ACK".to_vec(), token.as_bytes().to_vec()]).await.unwrap(),
         ante_native::Value::Error(message) if message.starts_with("PERMISSION_DENIED")

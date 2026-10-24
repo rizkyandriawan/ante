@@ -36,6 +36,14 @@ pub enum Command {
     Discard {
         tokens: Vec<String>,
     },
+    Complete {
+        token: String,
+        queue: String,
+        payload: Vec<u8>,
+        content_type: Option<String>,
+        message_id: Option<String>,
+        settlement: ante_core::Settlement,
+    },
     Requeue {
         token: String,
     },
@@ -185,6 +193,30 @@ impl Command {
                         .iter()
                         .map(|raw| text(raw, "delivery token"))
                         .collect::<Result<_, _>>()?,
+                })
+            }
+            "COMPLETE" => {
+                if args.len() < 3 || args.len() > 6 {
+                    return Err(fail(
+                        "PROTOCOL",
+                        "COMPLETE token queue payload [content-type] [message-id] [ACK|DISCARD]",
+                    ));
+                }
+                let settlement = match args.get(5) {
+                    Some(value) if value.eq_ignore_ascii_case(b"discard") => {
+                        ante_core::Settlement::Discard
+                    }
+                    Some(value) if value.eq_ignore_ascii_case(b"ack") => ante_core::Settlement::Ack,
+                    Some(_) => return Err(fail("PROTOCOL", "settlement must be ACK or DISCARD")),
+                    None => ante_core::Settlement::Ack,
+                };
+                Ok(Command::Complete {
+                    token: text(&args[0], "delivery token")?,
+                    queue: text(&args[1], "queue")?,
+                    payload: args[2].clone(),
+                    content_type: optional_text(args.get(3)),
+                    message_id: optional_text(args.get(4)),
+                    settlement,
                 })
             }
             "REQUEUE" => {

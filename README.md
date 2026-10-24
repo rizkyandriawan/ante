@@ -31,6 +31,8 @@ Design constraints:
 - **Visible history.** Every take records an attempt; ack, discard, requeue,
   expiry, and recovery finish it with a timestamped outcome. Native `STATUS`
   reads one message without scanning ready work.
+- **Atomic completion.** A worker can publish its result and settle its input
+  in one transaction, removing the publish-then-crash duplicate window.
 - **Batching is the throughput lever.** Sequential durable commits cost
   ~160 µs each; batch publish/ack/take amortizes that to a few µs per job.
   The native protocol exposes batching; AMQP production is limited by
@@ -108,6 +110,8 @@ ante publish QUEUE [PAYLOAD] [--file PATH] [--content-type TYPE] [--message-id I
 ante take    QUEUE [--max N] [--lease-ms N] [--wait-ms N] [--json]
 ante ack     TOKEN...
 ante discard TOKEN...
+ante complete TOKEN QUEUE [PAYLOAD] [--file PATH] [--content-type TYPE]
+             [--message-id ID] [--discard]
 ante requeue TOKEN...
 ante purge   QUEUE
 ante delete  QUEUE

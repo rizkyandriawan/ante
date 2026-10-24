@@ -140,6 +140,19 @@ successful. Same token, batching, and stale/unknown rules as `ACK`; the attempt
 history records `discarded` instead of `acked`. The AMQP endpoint maps
 `basic.reject`/`basic.nack` with `requeue=false` to it.
 
+### `COMPLETE token queue payload [content-type] [message-id] [ACK|DISCARD]`
+
+Publishes one result message to `queue` and settles the token in one
+transaction, then returns the new message id. `ACK` (the default) records the
+input attempt as `acked`; `DISCARD` records it as `discarded`. Requires
+`CONSUME` on the input queue and `PUBLISH` on the destination queue.
+
+A stale or unknown token returns the same error as `ACK` and publishes nothing.
+A missing destination queue, oversized payload, permission failure, or storage
+error aborts the transaction, leaving the input delivery in flight. If the
+destination is the same queue, the new result is enqueued and the input entry is
+removed atomically.
+
 ### `INFO queue`
 
 Reply: a flat array of key/value bulk strings:
