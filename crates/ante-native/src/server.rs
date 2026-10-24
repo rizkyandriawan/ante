@@ -153,9 +153,12 @@ async fn serve_loop(
                                     return;
                                 }
                             };
+                            handle_connection(Box::new(stream), ante, drain, stop, security)
+                                .await
+                        }
+                        None => {
                             handle_connection(Box::new(stream), ante, drain, stop, security).await
                         }
-                        None => handle_connection(Box::new(stream), ante, drain, stop, security).await,
                     };
                     if let Err(err) = result {
                         if err.kind() != std::io::ErrorKind::UnexpectedEof {

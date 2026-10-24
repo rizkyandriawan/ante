@@ -13,10 +13,16 @@ use lapin::types::FieldTable;
 use lapin::{BasicProperties, Connection, ConnectionProperties};
 use serde::Serialize;
 use tokio::net::TcpListener;
-use tokio::sync::{oneshot, Semaphore};
+use tokio::sync::{oneshot, watch, Semaphore};
 
 use ante_core::Ante;
 use ante_native::{serve_until, NativeClient, Value};
+use fe2o3_amqp::types::messaging::{Body, Message};
+use fe2o3_amqp::types::primitives::Value as Amqp1Value;
+use fe2o3_amqp::{
+    Connection as Amqp1Connection, Receiver as Amqp1Receiver, Sender as Amqp1Sender,
+    Session as Amqp1Session,
+};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -63,7 +69,10 @@ impl TempDir {
             "ante-e2e-bench-{}-{}-{}",
             std::process::id(),
             id,
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&path).unwrap();
         TempDir { path }
@@ -100,7 +109,12 @@ struct Verifier {
 
 impl Verifier {
     fn new(total: u64) -> Self {
-        Verifier { total, seen: vec![false; total as usize], seen_count: 0, duplicates: 0 }
+        Verifier {
+            total,
+            seen: vec![false; total as usize],
+            seen_count: 0,
+            duplicates: 0,
+        }
     }
 
     fn observe(&mut self, payload: &[u8]) {
@@ -129,6 +143,7 @@ async fn main() {
         match config.protocol.as_str() {
             "native" => run_native(&config).await,
             "amqp" => run_amqp(&config).await,
+            "amqp1" => run_amqp1(&config).await,
             "core" => run_core(&config).await,
             other => panic!("unknown protocol {other}"),
         }
@@ -139,7 +154,9 @@ async fn main() {
     println!("{}", serde_json::to_string(&stats).unwrap());
 }
 
-async fn start_server(ante: Arc<Ante>) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
+async fn start_server(
+    ante: Arc<Ante>,
+) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap().to_string();
     let (stop, rx) = oneshot::channel();
@@ -149,7 +166,9 @@ async fn start_server(ante: Arc<Ante>) -> (String, oneshot::Sender<()>, tokio::t
     (address, stop, task)
 }
 
-async fn start_amqp_server(ante: Arc<Ante>) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
+async fn start_amqp_server(
+    ante: Arc<Ante>,
+) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap().to_string();
     let (stop, rx) = oneshot::channel();
@@ -160,7 +179,10 @@ async fn start_amqp_server(ante: Arc<Ante>) -> (String, oneshot::Sender<()>, tok
 }
 
 async fn run_core(config: &Config) -> Stats {
-    assert_eq!(config.mode, "both", "core benchmark only supports --mode=both");
+    assert_eq!(
+        config.mode, "both",
+        "core benchmark only supports --mode=both"
+    );
     let dir = TempDir::new();
     let ante = Arc::new(Ante::open(dir.path.join("ante.redb")).unwrap());
     ante.declare_queue("jobs").unwrap();
@@ -256,7 +278,10 @@ async fn run_core(config: &Config) -> Stats {
 }
 
 async fn run_native(config: &Config) -> Stats {
-    assert_eq!(config.mode, "both", "native benchmark only supports --mode=both");
+    assert_eq!(
+        config.mode, "both",
+        "native benchmark only supports --mode=both"
+    );
     let dir = TempDir::new();
     let ante = Arc::new(Ante::open(dir.path.join("ante.redb")).unwrap());
     let (address, stop, server) = start_server(ante.clone()).await;
@@ -390,6 +415,244 @@ async fn run_native(config: &Config) -> Stats {
         consume_batch_us_p99: consume_hist.p99(),
         peak_rss_kb: hwm_kb(),
         db_bytes: dir_alloc_bytes(&dir.path),
+        duplicates,
+        verified: true,
+    }
+}
+
+async fn start_amqp1_server(
+    ante: Arc<Ante>,
+) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    let (stop, rx) = oneshot::channel();
+    let task = tokio::spawn(async move {
+        ante_amqp1::serve_until(listener, ante, rx).await.unwrap();
+    });
+    (address, stop, task)
+}
+
+fn amqp1_payload(body: &Body<Amqp1Value>) -> Vec<u8> {
+    match body {
+        Body::Data(batch) => batch
+            .iter()
+            .flat_map(|data| data.0.as_ref().iter().copied())
+            .collect(),
+        Body::Value(fe2o3_amqp::types::messaging::AmqpValue(Amqp1Value::Binary(binary))) => {
+            binary.to_vec()
+        }
+        Body::Value(fe2o3_amqp::types::messaging::AmqpValue(Amqp1Value::String(text))) => {
+            text.as_bytes().to_vec()
+        }
+        other => panic!("unexpected AMQP 1.0 body: {other:?}"),
+    }
+}
+
+async fn amqp1_produce(
+    url: String,
+    name: String,
+    start: u64,
+    end: u64,
+    payload_size: usize,
+) -> (Histogram, u64) {
+    let mut connection = Amqp1Connection::open(name.as_str(), url.as_str())
+        .await
+        .unwrap();
+    let mut session = Amqp1Session::begin(&mut connection).await.unwrap();
+    let mut sender = Amqp1Sender::attach(&mut session, name.as_str(), "jobs")
+        .await
+        .unwrap();
+    let mut hist = Histogram::new();
+    for index in start..end {
+        let timer = Timer::start();
+        let message = Message::builder()
+            .data(make_job(index, payload_size))
+            .build();
+        let outcome = sender.send(message).await.unwrap();
+        assert!(outcome.is_accepted(), "send rejected for job {index}");
+        hist.record(timer.micros());
+    }
+    sender.close().await.unwrap();
+    session.end().await.unwrap();
+    connection.close().await.unwrap();
+    (hist, end - start)
+}
+
+async fn amqp1_consume(
+    url: String,
+    name: String,
+    total: u64,
+    acked: Arc<AtomicU64>,
+    done: watch::Sender<bool>,
+    mut done_rx: watch::Receiver<bool>,
+    mut release: watch::Receiver<bool>,
+) -> (Histogram, Vec<u64>) {
+    let mut connection = Amqp1Connection::open(name.as_str(), url.as_str())
+        .await
+        .unwrap();
+    let mut session = Amqp1Session::begin(&mut connection).await.unwrap();
+    let mut receiver = Amqp1Receiver::attach(&mut session, name.as_str(), "jobs")
+        .await
+        .unwrap();
+    let mut hist = Histogram::new();
+    let mut received = Vec::new();
+    while acked.load(Ordering::Relaxed) < total {
+        let received_message = tokio::select! {
+            _ = done_rx.changed() => break,
+            result = tokio::time::timeout(Duration::from_secs(30), receiver.recv::<Body<Amqp1Value>>()) => {
+                match result {
+                    Ok(Ok(delivery)) => delivery,
+                    Ok(Err(error)) => panic!("{name} receive failed: {error}"),
+                    Err(_) => {
+                        if acked.load(Ordering::Relaxed) >= total {
+                            break;
+                        }
+                        panic!("{name} stalled before all jobs were consumed");
+                    }
+                }
+            }
+        };
+        let payload = amqp1_payload(&received_message.message().body);
+        let timer = Timer::start();
+        receiver.accept(&received_message).await.unwrap();
+        hist.record(timer.micros());
+        received.push(job_index(&payload));
+        if acked.fetch_add(1, Ordering::Relaxed) + 1 == total {
+            let _ = done.send(true);
+        }
+    }
+    while !*release.borrow() {
+        release.changed().await.unwrap();
+    }
+    receiver.close().await.unwrap();
+    session.end().await.unwrap();
+    connection.close().await.unwrap();
+    (hist, received)
+}
+
+async fn run_amqp1(config: &Config) -> Stats {
+    assert_eq!(
+        config.mode, "both",
+        "amqp1 benchmark only supports --mode=both"
+    );
+    let directory = TempDir::new();
+    let ante = Arc::new(Ante::open(directory.path.join("ante.sqlite3")).unwrap());
+    ante.declare_queue("jobs").unwrap();
+    let (address, stop, server) = start_amqp1_server(ante.clone()).await;
+    let url = format!("amqp://{address}");
+
+    let total = config.total;
+    let payload_size = config.payload;
+    let workers = 4u64;
+    let acked = Arc::new(AtomicU64::new(0));
+    let (done_tx, done_rx) = watch::channel(false);
+    let (release_tx, release_rx) = watch::channel(false);
+    let start = Timer::start();
+
+    let mut producers = Vec::new();
+    for index in 0..workers {
+        let first = total * index / workers;
+        let last = total * (index + 1) / workers;
+        producers.push(tokio::spawn(amqp1_produce(
+            url.clone(),
+            format!("producer-{index}"),
+            first,
+            last,
+            payload_size,
+        )));
+    }
+    let mut consumers = Vec::new();
+    for index in 0..workers {
+        consumers.push(tokio::spawn(amqp1_consume(
+            url.clone(),
+            format!("consumer-{index}"),
+            total,
+            acked.clone(),
+            done_tx.clone(),
+            done_rx.clone(),
+            release_rx.clone(),
+        )));
+    }
+
+    let mut publish_hist = Histogram::new();
+    let mut sent = 0u64;
+    for producer in producers {
+        let (hist, count) = producer.await.unwrap();
+        publish_hist.merge(hist);
+        sent += count;
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    while acked.load(Ordering::Relaxed) < total {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for consumers"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let info = ante.info("jobs").unwrap();
+        if info.total() == 0 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "server did not settle accepted deliveries: ready={} inflight={}",
+            info.ready,
+            info.inflight
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let _ = release_tx.send(true);
+    let mut consume_hist = Histogram::new();
+    let mut seen = vec![false; total as usize];
+    let mut duplicates = 0u64;
+    for consumer in consumers {
+        let (hist, indexes) = consumer.await.unwrap();
+        consume_hist.merge(hist);
+        for index in indexes {
+            let slot = &mut seen[index as usize];
+            if *slot {
+                duplicates += 1;
+            } else {
+                *slot = true;
+            }
+        }
+    }
+    let wall_ms = (start.micros() / 1000).max(1);
+    assert_eq!(sent, total);
+    let missing = seen.iter().filter(|seen| !**seen).count();
+    assert_eq!(missing, 0, "{missing} jobs were not delivered");
+    assert_eq!(duplicates, 0, "{duplicates} duplicate deliveries");
+    let info = ante.info("jobs").unwrap();
+    assert_eq!(
+        info.total(),
+        0,
+        "queue not drained: ready={} inflight={}",
+        info.ready,
+        info.inflight
+    );
+
+    let _ = stop.send(());
+    let _ = server.await;
+
+    Stats {
+        phase: "e2e_lifecycle",
+        protocol: "amqp1".into(),
+        jobs: total,
+        batch: config.batch,
+        payload: payload_size,
+        rep: config.rep,
+        window_batches: config.window_batches,
+        mode: config.mode.clone(),
+        wall_ms,
+        jobs_per_sec: total as f64 * 1000.0 / wall_ms as f64,
+        publish_batch_us_p50: publish_hist.p50(),
+        publish_batch_us_p99: publish_hist.p99(),
+        consume_batch_us_p50: consume_hist.p50(),
+        consume_batch_us_p99: consume_hist.p99(),
+        peak_rss_kb: hwm_kb(),
+        db_bytes: dir_alloc_bytes(&directory.path),
         duplicates,
         verified: true,
     }
@@ -670,6 +933,17 @@ fn parse_args() -> Config {
     }
     assert_eq!(total % batch as u64, 0, "total must be divisible by batch");
     assert!(window_batches > 0, "window must be positive");
-    assert!(matches!(mode.as_str(), "both" | "publish" | "consume"), "mode must be both|publish|consume");
-    Config { protocol, total, batch, payload, rep, window_batches, mode }
+    assert!(
+        matches!(mode.as_str(), "both" | "publish" | "consume"),
+        "mode must be both|publish|consume"
+    );
+    Config {
+        protocol,
+        total,
+        batch,
+        payload,
+        rep,
+        window_batches,
+        mode,
+    }
 }

@@ -63,3 +63,13 @@ so a large backlog cannot stall delivery indefinitely.
   human-readable job records remain a separate store until the job-history API
   is adopted there.
 - Process-crash tests do not prove power-loss durability on every device.
+
+## Verification
+
+- `qa/reports/2026-10-24-sqlite-probe.md`: three 10,000-job runs, zero loss,
+  zero in-flight remainder, p95 polling latency below 8 ms.
+- `qa/reports/2026-10-24-fault-matrix.md`: 15 `SIGKILL` cycles covering committed
+  publish, in-flight recovery, committed ack, atomic completion, and owner lock;
+  15/15 passed.
+- These are local process-crash checks. They do not prove power-loss durability
+  on every filesystem or device.

@@ -1,6 +1,6 @@
 # Delivery contract
 
-This document is normative for both endpoints (native and AMQP). If the code
+This document is normative for all endpoints (native, AMQP 0-9-1, and AMQP 1.0). If the code
 and this document disagree, that is a bug in one of them.
 
 ## Guarantee
@@ -20,7 +20,8 @@ There is no exactly-once mode and no transactional handoff between the queue
 and application state. If a handler writes to a database and then acks, a crash
 between those steps redelivers the message; if it acks first and then writes, a
 crash loses the work. The standard fix is an idempotency key: use the
-`message_id` (AMQP basic property or native message id) as a unique key in the
+`message_id` (AMQP basic property, AMQP 1.0 `properties.message-id`, or native
+message id) as a unique key in the
 application's write.
 
 ## State machine
@@ -76,7 +77,9 @@ after restart.
 ## Leases
 
 - Default lease: 30 seconds. Native clients may override per `TAKE`
-  (`lease-ms`). AMQP clients cannot set a lease; the server ACK timeout default of 30 minutes applies.
+  (`lease-ms`). AMQP clients cannot set a lease; the server ACK timeout default
+  of 30 minutes applies to AMQP 0-9-1 and AMQP 1.0 deliveries. AMQP 1.0
+  `accepted` acks, `released`/`modified` requeue, and `rejected` discards.
 - The lease starts when the delivery is handed to the consumer (after the take
   commit).
 - On expiry the message returns to ready and its attempt count increments.
@@ -184,9 +187,12 @@ concurrency, not equal distribution.
   nothing.
 - The database is a single file. Copying it while the server is running is not
   a supported backup method; stop the server or use a filesystem snapshot.
-- Crash testing used `kill -9` (30 cycles per backend) with full reference
-  integrity checks: zero failures. This proves process-crash safety, not
-  power-loss safety; that depends on the filesystem and device honoring flush.
+- The redb/LMDB storage benchmark used `kill -9` (30 cycles per backend) with
+  full reference integrity checks and zero failures. The SQLite fault matrix
+  added 15 cycles across committed publish, in-flight recovery, committed ack,
+  atomic completion, and owner lock, with zero failures. These prove
+  process-crash safety, not power-loss safety; that depends on the filesystem
+  and device honoring flush.
 - Ante takes an exclusive owner lock next to the SQLite file. A second process
   cannot open the same database; the CLI is a client, not a second opener.
 

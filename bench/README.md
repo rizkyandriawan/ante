@@ -70,6 +70,14 @@ without a consumer and verifies the stored queue after the timed phase.
 together, and consume paths wait for a server-side ack-commit barrier. See
 `RESULTS.md` section 8.
 
+AMQP 1.0 has its own end-to-end mode: four producer connections and four
+consumer connections, one durable publish per message, and an exact-once
+payload verifier. It waits for server-side settlement before closing consumers.
+
+```bash
+./target/release/e2e-bench amqp1 --total=20000 --batch=100 --payload=1024   --rep=1 --mode=both
+```
+
 ## Notes
 
 - Both stores use default durable commits. Do not compare these numbers with

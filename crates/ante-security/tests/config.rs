@@ -58,6 +58,22 @@ fn rejects_insecure_or_malformed_configs() {
     fs::write(&path, serde_json::to_vec(&no_tls).unwrap()).unwrap();
     assert!(Security::load(&path).is_err());
 
+    let no_password = serde_json::json!({
+        "tls": {"cert": cert, "key": key},
+        "users": {"worker": {"permissions": {"consume": ["jobs"]}}}
+    });
+    let path = directory.path().join("no-password.json");
+    fs::write(&path, serde_json::to_vec(&no_password).unwrap()).unwrap();
+    assert!(Security::load(&path).is_err());
+
+    let mtls_field = serde_json::json!({
+        "tls": {"cert": cert, "key": key, "client_ca": "/tmp/client-ca.pem"},
+        "users": {"worker": {"password_hash": password, "permissions": {"consume": ["jobs"]}}}
+    });
+    let path = directory.path().join("mtls-field.json");
+    fs::write(&path, serde_json::to_vec(&mtls_field).unwrap()).unwrap();
+    assert!(Security::load(&path).is_err());
+
     let weak = serde_json::json!({
         "tls": {"cert": cert, "key": key},
         "users": {"worker": {"password_hash": "plaintext", "permissions": {"consume": ["jobs"]}}}

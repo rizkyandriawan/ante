@@ -4,7 +4,7 @@ Ante's network endpoints are loopback-first and intentionally small. Before
 exposing them to another host, enable the secure profile: TLS, credential
 authentication, and default-deny queue permissions.
 
-A security file configures both adapters:
+A security file configures all listeners:
 
 ```bash
 ante serve --db ./ante.sqlite3 --security ./security.json
@@ -12,7 +12,7 @@ ante serve --db ./ante.sqlite3 --security ./security.json
 
 The file is loaded and fully validated **before** any listener binds. A
 configuration with users but no TLS is rejected. The same `Security` object is
-used by the native and AMQP listeners.
+used by the native, AMQP 0-9-1, and AMQP 1.0 listeners.
 
 ## Security file
 
@@ -43,7 +43,8 @@ used by the native and AMQP listeners.
 
 - `tls.cert` and `tls.key` are PEM paths, resolved relative to the security
   file's directory when not absolute.
-- `password_hash` must be an **Argon2id** PHC string. Generate one from stdin:
+- `password_hash` is required for every user and must be an **Argon2id** PHC
+  string. Generate one from stdin:
 
   ```bash
   printf '%s' 'secret' | ante hash-password
@@ -76,6 +77,10 @@ must for any consumer). A producer that should not read its own work needs only
 ## TLS
 
 - TLS 1.2 and 1.3 via rustls.
+- Clients authenticate with username/password after the TLS handshake.
+- mTLS and certificate-based login are deferred; see
+  [backlog.md](backlog.md). A security file containing `tls.client_ca` or
+  `tls.cert_login_from` is rejected.
 - The listener speaks **only** TLS in secure mode; there is no plaintext
   fallback.
 - Clients verify the certificate against a CA. For internal CAs, point the client
@@ -130,13 +135,32 @@ params = pika.ConnectionParameters(
 conn = pika.BlockingConnection(params)
 ```
 
-Only SASL `PLAIN` is offered in secure mode. The virtual host must be `/`
+In secure mode Ante offers SASL `PLAIN`. The virtual host must be `/`
 (`%2f` in a URI). Failed authentication closes the connection with
 `ACCESS_REFUSED` (403). Missing permissions close the channel with
 `ACCESS_REFUSED`; the connection remains usable for other channels.
 
 `AMQPLAIN` remains accepted only by the legacy plaintext profile. It is not a
 replacement for modern credentials.
+
+## AMQP 1.0 clients
+
+The secure AMQP 1.0 endpoint uses TLS plus SASL `PLAIN`:
+
+```rust
+let connection = fe2o3_amqp::Connection::builder()
+    .container_id("worker")
+    .tls_connector(tls_connector)
+    .sasl_profile(fe2o3_amqp::sasl_profile::SaslProfile::Plain {
+        username: "worker".into(),
+        password: "secret".into(),
+    })
+    .open("amqps://broker.internal:5673")
+    .await?;
+```
+
+See [amqp1.md](amqp1.md) for the supported subset and message mapping. mTLS is
+tracked in [backlog.md](backlog.md).
 
 ## Embedded Python
 
@@ -146,6 +170,9 @@ replacement for modern credentials.
 ante = Ante.open("ante.sqlite3")
 host, port = ante.serve_amqp(
     "127.0.0.1", 5671, security_path="/etc/myapp/security.json"
+)
+host1, port1 = ante.serve_amqp1(
+    "127.0.0.1", 5673, security_path="/etc/myapp/security.json"
 )
 ```
 
@@ -162,8 +189,8 @@ clients accordingly.
   dedicated group. Ante does not chmod them for you.
 - Rotate certificates and credentials by editing the file and restarting the
   daemon. Hot reload is not implemented.
-- There is no mTLS, OAuth, token expiry, revocation, rate limit, or audit log in
-  v1. Use network policy and short-lived credentials if you expose the endpoint.
+- There is no OAuth, token expiry, revocation, rate limit, or audit log in v1.
+  Use network policy and short-lived credentials if you expose the endpoint.
 - The queue database remains a single-writer file. Ante's security does not
   sandbox local processes that can open it directly; protect the filesystem.
 - Password hashes are verified with Argon2's default parameters

@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/ante-core", "crates/ante-native", "crates/ante-amqp", "crates/ante-security", "crates/ante"]
-exclude = ["bench"]
+members = ["crates/ante-core", "crates/ante-native", "crates/ante-amqp", "crates/ante-amqp1", "crates/ante-security", "crates/ante"]
+exclude = ["bench", "crates/ante-amqp1/vendor/fe2o3-amqp"]
 resolver = "2"
 
 [workspace.package]

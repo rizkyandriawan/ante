@@ -1,5 +1,7 @@
 # AMQP 0-9-1 compatibility
 
+For the separate AMQP 1.0 endpoint, see [amqp1.md](amqp1.md).
+
 Ante exposes an AMQP 0-9-1 endpoint so workers can use existing client
 libraries. It is a deliberately small profile: durable queues, the default
 exchange, publish/consume, confirms, and manual acknowledgements.
@@ -36,12 +38,12 @@ two intervals with connection error 320 `CONNECTION_FORCED`. Heartbeat frames
 keep an idle connection alive but do not acknowledge deliveries.
 
 In the legacy (no `--security`) profile, `PLAIN` and `AMQPLAIN` are offered but
-credentials and the virtual host are ignored. In the secure profile, only
-`PLAIN` is offered; credentials are verified against Argon2id hashes, the
-virtual host must be `/`, and every operation is checked against queue-scoped
-permissions. See [security.md](security.md). Exposure without TLS requires an
-explicit decision to run the development profile; run Ante on loopback or behind
-a trusted TLS proxy.
+credentials and the virtual host are ignored. In the secure profile, `PLAIN` is
+offered with Argon2id-verified credentials. The virtual host must be `/`, and
+every operation is checked against queue-scoped permissions. See
+[security.md](security.md). Exposure without TLS requires an explicit decision
+to run the development profile; run Ante on loopback or behind a trusted TLS
+proxy.
 
 ## Semantics
 
@@ -134,7 +136,7 @@ a trusted TLS proxy.
 | `exchange.delete` / `exchange.bind` | No-op success (no named exchanges exist) |
 | Server-named queues (`queue.declare` with empty name) | Channel error 540 `NOT_IMPLEMENTED` |
 | Transactions (`tx.select`, `tx.commit`, `tx.rollback`) | Channel error 540 `NOT_IMPLEMENTED` |
-| mTLS, SASL mechanisms beyond PLAIN in secure mode | Not implemented |
+| SASL mechanisms beyond `PLAIN` | Not implemented; `EXTERNAL`/mTLS is in [backlog.md](backlog.md) |
 | Named users / ACLs in legacy mode | Not implemented; use `--security` |
 | `immediate` publish flag | Ignored |
 | Priority, TTL, dead-letter, max-length arguments | Ignored |

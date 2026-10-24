@@ -2,10 +2,10 @@
 
 A small, durable work queue for putting background jobs behind existing apps.
 
-Ante is one binary and one database file. It speaks a tiny native protocol and
-an AMQP 0-9-1 subset, so a worker can be written in any language that already
-has an AMQP client, and a new service can use the simpler native protocol
-without a client library.
+Ante is one binary and one database file. It speaks a tiny native protocol, an
+AMQP 0-9-1 subset, and an opt-in AMQP 1.0 endpoint, so a worker can be written
+in any language that already has an AMQP client, and a new service can use the
+simpler native protocol without a client library.
 
 Status: **v0.1, pre-1.0**. Single node, Linux-first. TLS, Argon2id
 credentials, and queue-scoped permissions are available behind
@@ -62,6 +62,7 @@ The default (development) listener is loopback-only and unauthenticated. The dae
 
 - native protocol: `127.0.0.1:7300`
 - AMQP 0-9-1: `127.0.0.1:5672`
+- AMQP 1.0: opt-in with `--amqp1 ADDR` (default `127.0.0.1:5673`)
 
 CLI (talks to the native endpoint):
 
@@ -101,8 +102,9 @@ ch.basic_publish("", "jobs", body, properties=pika.BasicProperties(delivery_mode
 ## CLI
 
 ```
-ante serve   [--db PATH] [--native ADDR] [--amqp ADDR] [--no-native] [--no-amqp]
-             [--security PATH] [--history-retention-ms N] [--history-max-rows N]
+ante serve   [--db PATH] [--native ADDR] [--amqp ADDR] [--amqp1 ADDR]
+             [--no-native] [--no-amqp] [--security PATH]
+             [--history-retention-ms N] [--history-max-rows N]
 ante hash-password
 ante init    [--db PATH]
 ante declare QUEUE
@@ -128,9 +130,9 @@ ante ping
 rows; pass `0` to either `serve` flag to disable that limit.
 
 Client TLS/authentication flags: `--tls-ca PATH`, `--tls-server-name NAME`,
-`--user NAME`, `--password-file PATH`; environment equivalents are
-`ANTE_USER` and `ANTE_PASSWORD`. See
-[docs/security.md](docs/security.md).
+`--user NAME`, `--password-file PATH`; environment equivalents are `ANTE_USER`
+and `ANTE_PASSWORD`. mTLS is deferred and tracked in
+[docs/backlog.md](docs/backlog.md). See [docs/security.md](docs/security.md).
 
 `take` prints one line per delivery, tab separated:
 
@@ -223,7 +225,9 @@ Java; the same directory compares sidecar embedding with in-process FFI.
 crates/ante-core      storage engine, types, recovery
 crates/ante-native    RESP2-framed native protocol (server + client)
 crates/ante-amqp      AMQP 0-9-1 compatibility server
+crates/ante-amqp1     AMQP 1.0 endpoint
 crates/ante           daemon and CLI
+docs/backlog.md       deferred work (mTLS, advanced AMQP 1.0)
 examples/embed/       sidecar embedding examples (TypeScript, Python, Go, Java)
 sdks/python/          Python SDK (spawn + consume/publish, synchronous)
 bench/                historical storage benchmark harness and results
@@ -239,15 +243,16 @@ cargo run -p ante -- serve --db /tmp/ante.sqlite3
 ```
 
 The suite includes multi-worker stress (8 workers, no duplicate delivery, no
-loss), lease expiry and stale-ack behavior over the wire, AMQP compatibility
-tests driven by `lapin`, and the delivery-contract cases in `ante-core`.
+loss), lease expiry and stale-ack behavior over the wire, AMQP 0-9-1
+compatibility tests driven by `lapin`, AMQP 1.0 tests driven by `fe2o3-amqp`,
+and the delivery-contract cases in `ante-core`.
 
 ## Non-goals (v1)
 
 - Clustering, replication, or HA.
 - Named exchanges, topics, or routing beyond the AMQP default exchange.
 - Transactions, scheduling/delay queues, priorities, or dead-letter exchanges.
-- Multi-tenant isolation or mTLS.
+- Multi-tenant isolation, OAuth, or audit logging.
 - Exactly-once delivery.
 
 ## License

@@ -12,14 +12,16 @@ use tokio::sync::oneshot;
 const DEFAULT_SERVER: &str = "127.0.0.1:7300";
 const DEFAULT_NATIVE: &str = "127.0.0.1:7300";
 const DEFAULT_AMQP: &str = "127.0.0.1:5672";
+const DEFAULT_AMQP1: &str = "127.0.0.1:5673";
 const DEFAULT_DB: &str = "ante.sqlite3";
 
 const USAGE: &str = "\
 ante - durable work queue
 
 USAGE:
-  ante serve [--db PATH] [--native ADDR] [--amqp ADDR] [--no-native] [--no-amqp]
-             [--security PATH] [--history-retention-ms N] [--history-max-rows N]
+  ante serve [--db PATH] [--native ADDR] [--amqp ADDR] [--amqp1 ADDR]
+             [--no-native] [--no-amqp] [--security PATH]
+             [--history-retention-ms N] [--history-max-rows N]
   ante hash-password
   ante init [--db PATH]
   ante declare QUEUE [--server ADDR]
@@ -304,9 +306,14 @@ async fn serve(flags: &HashMap<String, String>) -> Result<(), (i32, String)> {
         .get("amqp")
         .cloned()
         .unwrap_or_else(|| DEFAULT_AMQP.into());
+    let amqp1_addr = flags
+        .get("amqp1")
+        .cloned()
+        .unwrap_or_else(|| DEFAULT_AMQP1.into());
     let with_native = !flags.contains_key("no-native");
     let with_amqp = !flags.contains_key("no-amqp");
-    if !with_native && !with_amqp {
+    let with_amqp1 = flags.contains_key("amqp1");
+    if !with_native && !with_amqp && !with_amqp1 {
         return Err((2, "at least one listener must be enabled".into()));
     }
     let security = match flags.get("security") {
@@ -368,6 +375,31 @@ async fn serve(flags: &HashMap<String, String>) -> Result<(), (i32, String)> {
             if security.is_some() { " (tls)" } else { "" }
         );
     }
+    let mut amqp1_task = None;
+    let mut amqp1_stop = None;
+    if with_amqp1 {
+        let listener = TcpListener::bind(&amqp1_addr)
+            .await
+            .map_err(|err| (1, format!("bind amqp1 {amqp1_addr}: {err}")))?;
+        let address = listener.local_addr().map_err(|err| (1, err.to_string()))?;
+        let (tx, rx) = oneshot::channel();
+        amqp1_stop = Some(tx);
+        let task = match security.clone() {
+            Some(security) => tokio::spawn(ante_amqp1::serve_secure_until_with_options(
+                listener,
+                ante.clone(),
+                ante_amqp1::ServerOptions::default(),
+                security,
+                rx,
+            )),
+            None => tokio::spawn(ante_amqp1::serve_until(listener, ante.clone(), rx)),
+        };
+        amqp1_task = Some(task);
+        println!(
+            "amqp1   {address}{}",
+            if security.is_some() { " (tls)" } else { "" }
+        );
+    }
     println!("db      {}", db.display());
 
     let reason = tokio::select! {
@@ -383,6 +415,12 @@ async fn serve(flags: &HashMap<String, String>) -> Result<(), (i32, String)> {
                 None => std::future::pending::<()>().await,
             }
         } => "amqp listener stopped".to_string(),
+        _ = async {
+            match amqp1_task.as_mut() {
+                Some(task) => { let _ = task.await; }
+                None => std::future::pending::<()>().await,
+            }
+        } => "amqp1 listener stopped".to_string(),
         _ = tokio::signal::ctrl_c() => "interrupted".to_string(),
     };
     eprintln!("ante: {reason}, shutting down");
@@ -393,10 +431,16 @@ async fn serve(flags: &HashMap<String, String>) -> Result<(), (i32, String)> {
     if let Some(tx) = amqp_stop {
         let _ = tx.send(());
     }
+    if let Some(tx) = amqp1_stop {
+        let _ = tx.send(());
+    }
     if let Some(task) = native_task {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), task).await;
     }
     if let Some(task) = amqp_task {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), task).await;
+    }
+    if let Some(task) = amqp1_task {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), task).await;
     }
     Ok(())

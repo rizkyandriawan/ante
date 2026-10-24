@@ -37,7 +37,9 @@ impl Args {
                     "--retry-pct" => retry_pct = v.parse().expect("retry-pct"),
                     "--seed" => seed = v.parse().expect("seed"),
                     "--rep" => rep = v.parse().expect("rep"),
-                    "--duration" => duration_ms = (v.parse::<f64>().expect("duration") * 1000.0) as u64,
+                    "--duration" => {
+                        duration_ms = (v.parse::<f64>().expect("duration") * 1000.0) as u64
+                    }
                     other => panic!("unknown flag {other}"),
                 }
             } else if positional == 0 {
@@ -49,7 +51,17 @@ impl Args {
         }
 
         assert!(batch > 0 && (total > 0 || duration_ms > 0) && payload > 0 && retry_pct <= 100);
-        Args { mode, db, total, batch, payload, retry_pct, seed, rep, duration_ms }
+        Args {
+            mode,
+            db,
+            total,
+            batch,
+            payload,
+            retry_pct,
+            seed,
+            rep,
+            duration_ms,
+        }
     }
 }
 
@@ -89,7 +101,9 @@ pub struct Histogram {
 
 impl Histogram {
     pub fn new() -> Self {
-        Histogram { samples: Vec::new() }
+        Histogram {
+            samples: Vec::new(),
+        }
     }
     pub fn record(&mut self, micros: u64) {
         self.samples.push(micros);
@@ -111,6 +125,9 @@ impl Histogram {
     pub fn max(&self) -> u64 {
         self.samples.iter().copied().max().unwrap_or(0)
     }
+    pub fn merge(&mut self, other: Histogram) {
+        self.samples.extend(other.samples);
+    }
 }
 
 pub fn rss_kb() -> u64 {
@@ -127,18 +144,38 @@ pub fn mem_breakdown() -> (u64, u64, u64) {
     let mut file = 0;
     for line in status.lines() {
         if let Some(rest) = line.strip_prefix("RssAnon:") {
-            anon = rest.trim().trim_end_matches("kB").trim().parse().unwrap_or(0);
+            anon = rest
+                .trim()
+                .trim_end_matches("kB")
+                .trim()
+                .parse()
+                .unwrap_or(0);
         } else if let Some(rest) = line.strip_prefix("RssFile:") {
-            file = rest.trim().trim_end_matches("kB").trim().parse().unwrap_or(0);
+            file = rest
+                .trim()
+                .trim_end_matches("kB")
+                .trim()
+                .parse()
+                .unwrap_or(0);
         } else if let Some(rest) = line.strip_prefix("RssShmem:") {
-            file += rest.trim().trim_end_matches("kB").trim().parse::<u64>().unwrap_or(0);
+            file += rest
+                .trim()
+                .trim_end_matches("kB")
+                .trim()
+                .parse::<u64>()
+                .unwrap_or(0);
         }
     }
     let rollup = fs::read_to_string("/proc/self/smaps_rollup").unwrap_or_default();
     let mut pss = 0;
     for line in rollup.lines() {
         if let Some(rest) = line.strip_prefix("Pss:") {
-            pss = rest.trim().trim_end_matches("kB").trim().parse().unwrap_or(0);
+            pss = rest
+                .trim()
+                .trim_end_matches("kB")
+                .trim()
+                .parse()
+                .unwrap_or(0);
         }
     }
     (anon, file, pss)
@@ -184,7 +221,9 @@ pub struct Timer {
 
 impl Timer {
     pub fn start() -> Self {
-        Timer { start: Instant::now() }
+        Timer {
+            start: Instant::now(),
+        }
     }
     pub fn micros(&self) -> u64 {
         self.start.elapsed().as_micros() as u64

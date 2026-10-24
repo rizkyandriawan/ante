@@ -8,6 +8,8 @@ publish = false
 ante-core = { path = "../../crates/ante-core" }
 ante-native = { path = "../../crates/ante-native" }
 ante-amqp = { path = "../../crates/ante-amqp" }
+ante-amqp1 = { path = "../../crates/ante-amqp1" }
+fe2o3-amqp = { version = "0.18.4", path = "../../crates/ante-amqp1/vendor/fe2o3-amqp", features = ["rustls"] }
 bench-common = { path = "../common" }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
 lapin = "3"
