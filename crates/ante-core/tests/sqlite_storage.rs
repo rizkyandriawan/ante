@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ante_core::{Ante, Error, NewMessage};
@@ -146,4 +147,35 @@ fn ack_batch_reports_stale_and_unknown_without_settling_them() {
         ]
     );
     assert_eq!(ante.info("jobs").unwrap().total(), 0);
+}
+
+#[test]
+fn crash_child() {
+    let Ok(path) = std::env::var("ANTE_CRASH_DB") else {
+        return;
+    };
+    let ante = Ante::open(path).unwrap();
+    ante.declare_queue("jobs").unwrap();
+    ante.publish("jobs", message(b"survives")).unwrap();
+    let _ = ante.take("jobs", 1, 30_000).unwrap();
+    std::process::exit(0);
+}
+
+#[test]
+fn confirmed_publish_survives_process_exit() {
+    let temp = TempDir::new();
+    let path = temp.path.join("ante.sqlite3");
+    let status = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "crash_child", "--nocapture"])
+        .env("ANTE_CRASH_DB", &path)
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let ante = Ante::open(&path).unwrap();
+    let info = ante.info("jobs").unwrap();
+    assert_eq!(info.ready, 1);
+    assert_eq!(info.inflight, 0);
+    let delivery = ante.take("jobs", 1, 30_000).unwrap().remove(0);
+    assert_eq!(delivery.payload, b"survives");
 }
