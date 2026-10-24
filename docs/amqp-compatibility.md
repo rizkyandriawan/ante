@@ -94,7 +94,7 @@ a trusted TLS proxy.
   is a 406 `PRECONDITION_FAILED` channel error; `tag=0` with `multiple=true`
   acks all outstanding deliveries and is always valid.
 - `basic.reject` and `basic.nack` support `requeue`. `requeue=false` is a
-  permanent discard (equivalent to ack).
+  permanent discard; its attempt history records `discarded`, not `acked`.
 - `basic.recover` always requeues the channel's outstanding deliveries; the
   `requeue` argument is ignored.
 - `basic.cancel` stops future deliveries; already-unacked deliveries stay
