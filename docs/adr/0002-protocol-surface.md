@@ -1,7 +1,7 @@
 # ADR 0002: native protocol plus an AMQP 0-9-1 subset
 
 Date: 2026-10-23
-Status: accepted
+Status: accepted; amended by ADR 0004 for AMQP heartbeats
 
 ## Context
 
@@ -58,11 +58,11 @@ Included because worker clients need it:
 
 - connection/channel lifecycle, `queue.declare`, `basic.consume`, `basic.get`,
   `basic.ack/reject/nack`, `basic.qos`, publisher confirms, mandatory returns,
-  `queue.purge/delete`.
+  `queue.purge/delete`, connection heartbeats.
 
 Excluded on purpose:
 
-- named exchanges, exchange bindings, `tx.*`, heartbeats, TLS, SASL beyond
+- named exchanges, exchange bindings, `tx.*`, TLS termination, SASL beyond
   PLAIN/AMQPLAIN, server-named queues, priority/TTL/dead-letter arguments.
 
 Excluded features fail loudly (`540 NOT_IMPLEMENTED` channel error) or are
@@ -83,7 +83,7 @@ Positive:
 Negative:
 
 - Two wire formats to document, test, and keep semantically aligned.
-- The AMQP subset will disappoint clients that assume exchanges, heartbeats, or
+- The AMQP subset will disappoint clients that assume exchanges or
   transactions. This must be stated up front in the README and compatibility
   doc.
 - The native protocol is another API to version and support.

@@ -82,6 +82,10 @@ after restart.
 - On expiry the message returns to ready and its attempt count increments.
 - Recovery runs once per second in the server process, and once at startup for
   all in-flight messages left by a previous process.
+- AMQP connections have a 30-second heartbeat by default. A silent peer is
+  disconnected after two intervals, and that connection's in-flight deliveries
+  are requeued immediately by channel cleanup instead of waiting for lease
+  expiry.
 
 A lease is not a visibility timeout that can be extended. If a handler needs
 more time, it must be fast enough, use a shorter unit of work, or (in v1) ack

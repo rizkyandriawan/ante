@@ -10,7 +10,7 @@ Default address: `amqp://guest:guest@127.0.0.1:5672/%2f`.
 
 | Area | Methods |
 |---|---|
-| Connection | `connection.start/start-ok`, `tune/tune-ok`, `open/open-ok`, `close/close-ok` |
+| Connection | `connection.start/start-ok`, `tune/tune-ok`, `open/open-ok`, `close/close-ok`, heartbeat frames |
 | Channel | `channel.open/open-ok`, `close/close-ok`, `flow/flow-ok` |
 | Queue | `queue.declare/declare-ok`, `bind/bind-ok`, `unbind/unbind-ok` (default exchange only), `purge/purge-ok`, `delete/delete-ok` |
 | Basic | `qos/qos-ok`, `consume/consume-ok`, `cancel/cancel-ok`, `publish`, `get/get-ok/get-empty`, `ack`, `reject`, `nack`, `recover/recover-ok`, `deliver` |
@@ -21,13 +21,19 @@ Negotiated values:
 
 - `channel_max = 16`
 - `frame_max = 131072`
-- `heartbeat = 0` (disabled)
+- `heartbeat = 30` seconds (negotiated)
 
 The client's `tune-ok` values are honored: a lower `frame_max` (minimum 4096)
 shrinks outgoing body frames, and a lower `channel_max` is enforced when a
 channel is opened. `frame_max` is the total frame size, including the 8-byte
 header/terminator overhead; inbound frames larger than it are rejected.
 Exceeding `channel_max` is a connection error 504 `CHANNEL_ERROR`.
+
+Heartbeats follow the AMQP negotiation rule: the smaller non-zero value wins;
+if one side advertises `0`, the other side's value is used. The server sends a
+heartbeat every half interval and closes a connection that has been silent for
+two intervals with connection error 320 `CONNECTION_FORCED`. Heartbeat frames
+keep an idle connection alive but do not acknowledge deliveries.
 
 In the legacy (no `--security`) profile, `PLAIN` and `AMQPLAIN` are offered but
 credentials and the virtual host are ignored. In the secure profile, only
@@ -128,7 +134,6 @@ a trusted TLS proxy.
 | `exchange.delete` / `exchange.bind` | No-op success (no named exchanges exist) |
 | Server-named queues (`queue.declare` with empty name) | Channel error 540 `NOT_IMPLEMENTED` |
 | Transactions (`tx.select`, `tx.commit`, `tx.rollback`) | Channel error 540 `NOT_IMPLEMENTED` |
-| Heartbeats | Negotiated to 0; no heartbeat frames are sent |
 | mTLS, SASL mechanisms beyond PLAIN in secure mode | Not implemented |
 | Named users / ACLs in legacy mode | Not implemented; use `--security` |
 | `immediate` publish flag | Ignored |
@@ -136,24 +141,24 @@ a trusted TLS proxy.
 | `basic.return` from client to server | Not a client method; rejected |
 | Connection blocked/unblocked notifications | Not implemented |
 
-Clients that declare a non-default exchange, use `tx.*`, or enable heartbeats
-will fail or behave differently. Most worker libraries only need queue declare,
-qos, consume, publish, and ack, which are covered.
+Clients that declare a non-default exchange or use `tx.*` will fail or behave
+differently. Most worker libraries only need queue declare, qos, consume,
+publish, and ack, which are covered.
 
 ## Client configuration notes
 
 **Python (pika)**
 
 ```python
-params = pika.ConnectionParameters("127.0.0.1", heartbeat=0)
+params = pika.ConnectionParameters("127.0.0.1", heartbeat=60)
 conn = pika.BlockingConnection(params)
 ch = conn.channel()
 ch.queue_declare(queue="jobs", durable=True)
 ch.basic_qos(prefetch_count=16)
 ```
 
-Disable heartbeats explicitly or set them to 0; the server negotiates 0 and
-does not send heartbeat frames.
+Pika's default heartbeat works. The server advertises 30 seconds and the
+negotiated interval is the smaller non-zero value.
 
 **Node (amqplib)**
 
