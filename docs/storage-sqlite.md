@@ -8,7 +8,7 @@ Ante stores queues in a single SQLite database. The default path is
 - WAL journal mode.
 - `synchronous=FULL` on the writer.
 - `foreign_keys=ON`.
-- A bounded writer and two bounded reader connections.
+- A bounded writer and two bounded query-only reader connections.
 - An exclusive `.lock` file beside the database.
 
 The lock is an **engine ownership** lock, not just a SQLite lock. Opening the
@@ -22,7 +22,7 @@ from a polling connection. A completed clean shutdown releases the lock.
 3. Validate the schema version.
 4. Open the writer and apply SQLite settings.
 5. Requeue in-flight deliveries from the previous process.
-6. Open read-only connections and start listeners.
+6. Open query-only reader connections and start listeners.
 
 ## Backup and restore
 
