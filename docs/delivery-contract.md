@@ -8,8 +8,9 @@ and this document disagree, that is a bug in one of them.
 Ante provides **at-least-once** delivery with durable storage:
 
 1. A publish reply is sent only after the message is durably committed.
-2. A message is removed only after a successful `ack`, which is itself durably
-   committed before the reply.
+2. A message is removed only after a successful `ack`. Native/embedded replies
+   follow the durable commit. AMQP consumer `basic.ack` has no reply; its client
+   method return is not confirmation that the broker has recorded settlement.
 3. A crash, connection loss, or lease expiry can cause a message to be
    delivered again. It cannot cause a message that was successfully published
    and not acked to disappear.

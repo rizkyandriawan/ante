@@ -53,9 +53,10 @@ proxy.
   The declare-ok reply reports the ready message count and the number of
   consumers bound to that queue identity.
   `passive=true` returns 404 `NOT_FOUND` if the queue does not exist.
-- `durable`, `exclusive`, and `auto-delete` bits are accepted but not enforced.
-  Queue lifetime is explicit (`queue.delete`); an exclusive queue is not
-  removed when its connection closes.
+- Queues always remain durable even with `durable=false`. Exclusive/auto-delete
+  queues and non-empty queue arguments are rejected with 540 `NOT_IMPLEMENTED`.
+  Exclusive consumers and non-empty consumer arguments are rejected likewise;
+  unsupported lifecycle/TTL policies are never silently accepted.
 - `queue.delete` honors `if_empty` and `if_unused`. A failed condition is a 406
   channel error and deletes nothing. `if_unused` sees consumers on **every**
   connection, matched by the queue's identity: a consumer still winding down
@@ -80,11 +81,13 @@ proxy.
   a duplicate tag is rejected with 530 `NOT_ALLOWED` and closes the channel.
   `basic.get` performs one synchronous take. `basic.get` with `no_ack=true`
   acks immediately.
-- `basic.qos(prefetch_count=N)` limits unacked deliveries **per channel**
-  (shared by all consumers on that channel). Capacity is reserved atomically
-  before a take, so multiple consumers on one channel cannot exceed the limit.
-  `prefetch_count=0` means the server default of 32. The prefetch size field is
-  ignored.
+- `basic.qos(prefetch_count=N, global=false)` sets the limit for each new
+  consumer, matching RabbitMQ. `global=true` adds a shared limit across push
+  consumers on the channel; both limits apply together. Zero means unlimited.
+  Capacity for a shared limit is reserved atomically before taking work.
+  `basic.get` and auto-ACK consumers do not consume QoS credit. Internal take
+  batches remain bounded even with unlimited QoS. Non-zero byte QoS is rejected
+  with 540 `NOT_IMPLEMENTED`.
 - Deliveries use the server ACK timeout lease (30 minutes by default). An expired delivery is
   returned to ready and its prefetch slot is released. A late `basic.ack` for
   that expired tag is an unknown tag and closes the channel with 406
@@ -123,7 +126,13 @@ proxy.
   reservations and reconciliation are tied to a channel generation, so a
   closed and reopened channel number is never mutated by an old task.
 - A connection close requeues all in-flight deliveries owned by that
-  connection.
+  connection. ACK/reject/recover keep outstanding ownership until the storage
+  operation succeeds; a storage error closes the channel instead of silently
+  releasing credit. Auto-ACK failures also close the channel and retain the
+  pending claim for cleanup/recovery.
+- Consumer `basic.ack` is asynchronous and has no broker reply. A Pika call
+  returning does not prove the broker recorded the ACK; publisher confirms are
+  a different mechanism.
 - `redelivered` is set when the delivery attempt count is greater than 1.
 - `message_id`, `content_type`, `correlation_id`, and `reply_to` properties are
   stored and returned. Other properties are accepted and dropped.
@@ -139,7 +148,7 @@ proxy.
 | SASL mechanisms beyond `PLAIN` | Not implemented; `EXTERNAL`/mTLS is in [backlog.md](backlog.md) |
 | Named users / ACLs in legacy mode | Not implemented; use `--security` |
 | `immediate` publish flag | Ignored |
-| Priority, TTL, dead-letter, max-length arguments | Ignored |
+| Priority, TTL, dead-letter, max-length arguments | Rejected (queue arguments unsupported) |
 | `basic.return` from client to server | Not a client method; rejected |
 | Connection blocked/unblocked notifications | Not implemented |
 
@@ -227,3 +236,10 @@ One ack per delivery is a durable commit per message and is the slow path;
 After a channel error the server sends `channel.close` and discards that
 channel's state. The connection remains usable; the client must reopen the
 channel.
+## Cross-adapter verification
+
+The shared suite in the sibling `ante-python/tests/test_pika_contract.py` runs
+identical channel calls against embedded channels, Pika to an embedded listener,
+Pika to the standalone daemon, and a RabbitMQ reference. See
+[the compatibility report](../qa/reports/2026-10-25-pika-parity.md) for measured
+results, fault injection, supported scope, and reproduction.
