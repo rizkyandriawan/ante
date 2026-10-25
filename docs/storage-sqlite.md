@@ -20,7 +20,7 @@ from a polling connection. A completed clean shutdown releases the lock.
 1. Acquire the owner lock.
 2. Reject a non-SQLite or foreign SQLite file without overwriting it.
 3. Validate the schema version; a version-1 database is migrated to version 2
-   in one write transaction.
+   in one write transaction, and legacy attempt indexes are rebuilt.
 4. Open the writer and apply SQLite settings.
 5. Requeue in-flight deliveries from the previous process.
 6. Open query-only reader connections and start listeners.
@@ -46,6 +46,12 @@ history retains the previous outcome.
 
 The table deliberately has no foreign key to entries. Acknowledging a message or
 deleting its queue therefore preserves attempt history for status queries.
+
+The finished-attempt index is partial (`WHERE finished_at_ms IS NOT NULL`), so
+unfinished attempts do not pay for it. There is no queue-level attempt index:
+status queries and retention prune by entry or finish time. On open, Ante
+rebuilds an older non-partial finished index and removes the unused queue index;
+this is an index-only migration and does not change the schema version.
 
 Retention defaults to **7 days** and **1,000,000 finished attempts**. The policy
 runs at open and every 60 seconds while a native or AMQP listener is running.
